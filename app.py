@@ -34,7 +34,7 @@ def salvar_configuracoes_arquivo(novos_dados):
     with open(ARQUIVO_CONFIG, 'w') as f:
         json.dump(novos_dados, f)
 
-# --- 2. MEMÓRIA GLOBAL DO SISTEMA ---
+# --- 2. MEMÓRIA GLOBAL ---
 @st.cache_resource
 def obter_memoria_global():
     base = {
@@ -56,10 +56,10 @@ if 'limites' not in st.session_state:
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
-# --- 3. PROCESSADOR DE DADOS (RECEBIMENTO) ---
+# --- 3. PROCESSADOR DE DADOS (CRUCIAL PARA O CÓDIGO 200) ---
 def processar_entrada(params):
     try:
-        # Normaliza os parâmetros (Streamlit query_params vêm como lista)
+        # O Streamlit envia query_params como listas. Precisamos extrair o primeiro item.
         dados = {k: (v[0] if isinstance(v, list) else v) for k, v in params.items()}
         
         id_b = dados.get('id', 'jacutinga_b01')
@@ -75,17 +75,14 @@ def processar_entrada(params):
             oleo = safe_f(dados.get('oleo', 0))
             p_bar = safe_f(dados.get('pressao', 0))
             
-            # Cálculo de Vibração RMS
             v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
 
-            # Atualiza Memória em Tempo Real
             memoria[id_b].update({
                 'vx': vx, 'vy': vy, 'vz': vz, 'rms': v_rms, 
                 'mancal': mancal, 'oleo': oleo, 'pressao_bar': p_bar,
                 'ultimo_visto': time.time(), 'online': True
             })
             
-            # Adiciona ao Histórico
             agora = datetime.now()
             ponto = {
                 "Data_Hora": agora.strftime("%d/%m/%Y %H:%M:%S"), 
@@ -99,15 +96,15 @@ def processar_entrada(params):
             if len(memoria[id_b]['historico']) > 1000:
                 memoria[id_b]['historico'].pop(0)
             return True
-    except Exception as e:
+    except:
         return False
     return False
 
-# Captura via URL (Render)
+# Esta linha captura o que o seu ESP32 está enviando (image_2d9623.png)
 if st.query_params:
     processar_entrada(st.query_params.to_dict())
 
-# Servidor Flask (Thread secundária)
+# Servidor Flask (Mantido para compatibilidade local)
 app_flask = Flask(__name__)
 CORS(app_flask)
 @app_flask.route('/update', methods=['GET'])
@@ -118,14 +115,12 @@ def update():
 
 if 'thread_ativa' not in st.session_state:
     def rodar_flask():
-        try:
-            app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
-        except:
-            pass
+        try: app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+        except: pass
     threading.Thread(target=rodar_flask, daemon=True).start()
     st.session_state['thread_ativa'] = True
 
-# --- 4. LÓGICA DE ALERTAS E STATUS ---
+# --- 4. LÓGICA DE STATUS E ALERTAS ---
 def atualizar_status_conexao():
     agora = time.time()
     for id_b in memoria:
@@ -154,7 +149,7 @@ def verificar_alertas(id_b):
             })
     return any(not a['Reconhecido'] for a in dados['alertas'])
 
-# --- 5. INTERFACE STREAMLIT ---
+# --- 5. INTERFACE (RESTALRADA) ---
 st.set_page_config(page_title="Monitor Jacutinga", layout="wide", page_icon="🚀")
 st_autorefresh(interval=3000, key="refresh_global")
 atualizar_status_conexao()
@@ -176,7 +171,6 @@ with st.sidebar:
 dados_atual = memoria[id_sel]
 tem_alerta = verificar_alertas(id_sel)
 
-# --- ABA DASHBOARD ---
 if aba == "Dashboard":
     c_tit, c_sts = st.columns([0.8, 0.2])
     with c_tit:
@@ -200,42 +194,40 @@ if aba == "Dashboard":
     with g1:
         fig1 = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['rms'], title={'text': "Vibração RMS"},
             gauge={'axis': {'range': [0, 5]}, 'bar': {'color': "#ffa500"}, 'threshold': {'line': {'color': "red", 'width': 4}, 'value': st.session_state.limites['vib_rms']}}))
-        fig1.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20))
+        fig1.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig1, use_container_width=True)
 
     with g2:
         fig2 = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['pressao_bar'], title={'text': "Pressão (Bar)"},
             gauge={'axis': {'range': [0, 15]}, 'bar': {'color': "#0097d7"}}))
-        fig2.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20))
+        fig2.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig2, use_container_width=True)
 
     with g3:
         fig3 = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['mancal'], title={'text': "Temp. Mancal °C"},
             gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#ff4b4b"}, 'threshold': {'line': {'color': "red", 'width': 4}, 'value': st.session_state.limites['temp_mancal']}}))
-        fig3.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20))
+        fig3.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig3, use_container_width=True)
 
-# --- ABA GRÁFICOS ---
 elif aba == "Gráficos":
     st.subheader(f"📈 Tendências Históricas - {dados_atual['nome']}")
     if not dados_atual['historico']:
-        st.info("Aguardando telemetria do ESP32...")
+        st.info("Aguardando telemetria...")
     else:
         df = pd.DataFrame(dados_atual['historico'])
-        st.plotly_chart(px.line(df, x="Hora", y=["Vib_X", "Vib_Y", "Vib_Z"], title="Análise de Vibração por Eixo"), use_container_width=True)
+        st.plotly_chart(px.line(df, x="Hora", y=["Vib_X", "Vib_Y", "Vib_Z"], title="Vibração por Eixo"), use_container_width=True)
         
         c_l, c_r = st.columns(2)
         with c_l:
-            st.plotly_chart(px.line(df, x="Hora", y="Pressao_Bar", title="Pressão (Bar)", color_discrete_sequence=['#004a8d']), use_container_width=True)
+            st.plotly_chart(px.line(df, x="Hora", y="Pressao_Bar", title="Pressão (Bar)"), use_container_width=True)
         with c_r:
-            st.plotly_chart(px.line(df, x="Hora", y="Temp_Mancal", title="Temperatura (°C)", color_discrete_sequence=['#ff4b4b']), use_container_width=True)
+            st.plotly_chart(px.line(df, x="Hora", y="Temp_Mancal", title="Temperatura (°C)"), use_container_width=True)
 
-# --- ABA ALERTAS ---
 elif aba == "Alertas":
     st.subheader("🔔 Gerenciamento de Alertas")
     pendentes = [a for a in dados_atual['alertas'] if not a['Reconhecido']]
     if not pendentes:
-        st.success("Tudo em ordem! Nenhum alerta pendente.")
+        st.success("Tudo em ordem!")
     else:
         for i, a in enumerate(pendentes):
             with st.container(border=True):
@@ -245,9 +237,8 @@ elif aba == "Alertas":
                     a['Reconhecido'] = True
                     st.rerun()
 
-# --- ABA CONFIGURAÇÕES ---
 elif aba == "Configurações":
-    st.subheader("⚙️ Configurações do Sistema")
+    st.subheader("⚙️ Configurações e Relatórios")
     if not st.session_state.autenticado:
         senha = st.text_input("Senha Admin:", type="password")
         if st.button("Entrar"):
@@ -257,7 +248,6 @@ elif aba == "Configurações":
         if st.button("Logoff 🔓"): st.session_state.autenticado = False; st.rerun()
         
         with st.form("set_limites"):
-            st.write("🔧 **Ajuste de Limites Críticos**")
             l = st.session_state.limites
             new_t = st.number_input("Temp. Mancal Máx (°C)", value=l['temp_mancal'])
             new_v = st.number_input("Vibração RMS Máx (mm/s²)", value=l['vib_rms'])
@@ -268,7 +258,6 @@ elif aba == "Configurações":
 
         if dados_atual['historico']:
             st.divider()
-            st.write("📊 **Relatórios**")
             df_exp = pd.DataFrame(dados_atual['historico'])
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
