@@ -1,4 +1,5 @@
 import streamlit as st
+import pd
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -56,29 +57,24 @@ if 'limites' not in st.session_state:
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
-# --- 3. SERVIDOR FLASK (RECEBIMENTO DE DADOS) ---
-app_flask = Flask(__name__)
-CORS(app_flask)
-
-@app_flask.route('/update', methods=['GET'])
-def update():
+# --- 3. PROCESSADOR DE DADOS UNIFICADO ---
+def processar_entrada(dados_brutos):
     try:
-        id_b = request.args.get('id', 'jacutinga_b01')
-        
-        def safe_float(v):
-            try: return float(v)
-            except: return 0.0
-
-        vx = safe_float(request.args.get('vx', 0))
-        vy = safe_float(request.args.get('vy', 0))
-        vz = safe_float(request.args.get('vz', 0))
-        mancal = safe_float(request.args.get('mancal', 0))
-        oleo = safe_float(request.args.get('oleo', 0))
-        p_bar = safe_float(request.args.get('pressao', 0))
-        
-        v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
-
+        id_b = dados_brutos.get('id', 'jacutinga_b01')
         if id_b in memoria:
+            def safe_f(v):
+                try: return float(v)
+                except: return 0.0
+
+            vx = safe_f(dados_brutos.get('vx', 0))
+            vy = safe_f(dados_brutos.get('vy', 0))
+            vz = safe_f(dados_brutos.get('vz', 0))
+            mancal = safe_f(dados_brutos.get('mancal', 0))
+            oleo = safe_f(dados_brutos.get('oleo', 0))
+            p_bar = safe_f(dados_brutos.get('pressao', 0))
+            
+            v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
+
             memoria[id_b].update({
                 'vx': vx, 'vy': vy, 'vz': vz, 'rms': v_rms, 
                 'mancal': mancal, 'oleo': oleo, 'pressao_bar': p_bar,
@@ -91,31 +87,35 @@ def update():
                 "Hora": agora.strftime("%H:%M:%S"),
                 "RMS_Vibracao": round(v_rms, 3), 
                 "Vib_X": vx, "Vib_Y": vy, "Vib_Z": vz,
-                "Temp_Mancal": mancal, 
-                "Temp_Oleo": oleo,
-                "Pressao_Bar": p_bar,
-                "Pressao_MCA": round(p_bar * 10.197, 2)
+                "Temp_Mancal": mancal, "Temp_Oleo": oleo,
+                "Pressao_Bar": p_bar, "Pressao_MCA": round(p_bar * 10.197, 2)
             }
             memoria[id_b]['historico'].append(ponto)
-            
-            if len(memoria[id_b]['historico']) > 1000: 
+            if len(memoria[id_b]['historico']) > 1000:
                 memoria[id_b]['historico'].pop(0)
-                
-            return "OK", 200
-    except Exception as e: 
-        return f"Erro: {str(e)}", 500
-    return "ID Inválido", 400
+            return True
+    except:
+        return False
+    return False
 
-# Inicia o Flask com verificação de thread para evitar erro de porta no Render
+# CAPTURA DIRETA VIA STREAMLIT (PARA O RENDER)
+if st.query_params:
+    processar_entrada(st.query_params)
+
+# SERVIDOR FLASK (PARA TESTES LOCAIS)
+app_flask = Flask(__name__)
+CORS(app_flask)
+@app_flask.route('/update', methods=['GET'])
+def update():
+    if processar_entrada(request.args):
+        return "OK", 200
+    return "Erro", 400
+
 if 'thread_ativa' not in st.session_state:
     def rodar_flask():
-        try:
-            app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
-        except Exception:
-            pass # Impede que o app trave se a porta estiver em uso
-
-    t = threading.Thread(target=rodar_flask, daemon=True)
-    t.start()
+        try: app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+        except: pass
+    threading.Thread(target=rodar_flask, daemon=True).start()
     st.session_state['thread_ativa'] = True
 
 # --- 4. LÓGICA DE ALERTAS E STATUS ---
