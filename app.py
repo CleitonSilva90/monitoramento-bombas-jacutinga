@@ -56,12 +56,16 @@ if 'limites' not in st.session_state:
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
-# --- 3. PROCESSADOR DE DADOS UNIFICADO ---
+# --- 3. PROCESSADOR DE DADOS ---
 def processar_entrada(params):
     try:
-        id_b = params.get('id', 'jacutinga_b01')
+        id_b = params.get('id')
+        # Se vier do Streamlit query_params, pode vir como lista
+        if isinstance(id_b, list): id_b = id_b[0]
+        
         if id_b in memoria:
             def safe_f(v):
+                if isinstance(v, list): v = v[0]
                 try: return float(v)
                 except: return 0.0
 
@@ -93,240 +97,86 @@ def processar_entrada(params):
             if len(memoria[id_b]['historico']) > 1000:
                 memoria[id_b]['historico'].pop(0)
             return True
-    except:
+    except Exception as e:
         return False
     return False
 
-# Captura direta via URL (Para o Render)
+# Captura de dados via URL (Ideal para Nuvem/Render)
 if st.query_params:
-    processar_entrada(st.query_params)
+    processar_entrada(st.query_params.to_dict())
 
 # Servidor Flask (Para compatibilidade local)
 app_flask = Flask(__name__)
 CORS(app_flask)
 @app_flask.route('/update', methods=['GET'])
 def update():
-    if processar_entrada(request.args):
+    if processar_entrada(request.args.to_dict()):
         return "OK", 200
     return "Erro", 400
 
 if 'thread_ativa' not in st.session_state:
     def rodar_flask():
-        try: app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
-        except: pass
+        try:
+            # Roda na porta 8080. Se falhar, o Streamlit não morre.
+            app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+        except:
+            pass
     threading.Thread(target=rodar_flask, daemon=True).start()
     st.session_state['thread_ativa'] = True
 
-# --- 4. LÓGICA DE ALERTAS E STATUS ---
-def atualizar_status_conexao():
-    agora = time.time()
-    for id_b in memoria:
-        visto = memoria[id_b].get('ultimo_visto')
-        if visto and (agora - visto > 60): 
-            memoria[id_b]['online'] = False
-
-def verificar_alertas(id_b):
-    dados = memoria[id_b]
-    lim = st.session_state.limites
-    agora_f = datetime.now().strftime("%d/%m/%Y %H:%M")
-    novos = []
-    
-    if dados['pressao_bar'] > lim['pressao_max_bar']:
-        novos.append(("Pressão", "CRÍTICO", "PRESSÃO ACIMA DO LIMITE", dados['pressao_bar']))
-    elif 0.1 < dados['pressao_bar'] < lim['pressao_min_bar']:
-        novos.append(("Pressão", "CRÍTICO", "PRESSÃO BAIXA - ADUTORA", dados['pressao_bar']))
-    
-    if dados['mancal'] > lim['temp_mancal']:
-        novos.append(("Temp. Mancal", "CRÍTICO", "LIMITE EXCEDIDO", dados['mancal']))
-    
-    if dados['rms'] > lim['vib_rms']:
-        novos.append(("Vibração", "CRÍTICO", "VIBRAÇÃO ELEVADA", dados['rms']))
-
-    for sensor, status, msg, valor in novos:
-        if not any(a['Mensagem'] == msg and not a['Reconhecido'] for a in dados['alertas']):
-            dados['alertas'].insert(0, {
-                "Equipamento": f"{dados['nome']}", "Sensor": sensor, "Mensagem": msg, 
-                "Hora": agora_f, "Valor": round(valor, 2), "Status": status, "Reconhecido": False
-            })
-    return any(not a['Reconhecido'] for a in dados['alertas'])
-
-# --- 5. CONFIGURAÇÃO DA INTERFACE STREAMLIT ---
-st.set_page_config(page_title="Monitor de Ativos Jacutinga", layout="wide")
-st_autorefresh(interval=3000, key="refresh_global") 
-atualizar_status_conexao()
+# --- 4. INTERFACE ---
+st.set_page_config(page_title="Monitor Jacutinga", layout="wide")
+st_autorefresh(interval=3000, key="refresh_global")
 
 with st.sidebar:
-    st.markdown("<div style='text-align: center;'><img src='https://cdn-icons-png.flaticon.com/512/3105/3105807.png' width='80'></div>", unsafe_allow_html=True)
+    st.header("Monitoramento")
+    id_sel = st.selectbox("Ativo:", list(memoria.keys()), format_func=lambda x: f"{memoria[x]['nome']}")
     st.divider()
-    
-    id_sel = st.selectbox("📍 Selecionar Ativo:", list(memoria.keys()), 
-                          format_func=lambda x: f"{memoria[x]['nome']} - {memoria[x]['local']}")
-    
-    st.markdown("### 🌐 Status de Conexão")
-    for id_b, d in memoria.items():
-        cor_led = "🟢" if d['online'] else "🔴"
-        st.write(f"{cor_led} **{d['nome']}**")
+    aba = option_menu(None, ["Dashboard", "Gráficos", "Alertas", "Configurações"], 
+                      icons=["speedometer2", "graph-up", "bell", "gear"], default_index=0)
 
-    st.divider()
-    aba = option_menu(
-        menu_title=None, 
-        options=["Dashboard", "Gráficos", "Alertas", "Configurações"],
-        icons=["speedometer2", "graph-up", "bell-fill", "gear-fill"], 
-        default_index=0,
-        styles={"nav-link-selected": {"background-color": "#004a8d"}},
-        key="menu_principal"
-    )
-
-tem_alerta = verificar_alertas(id_sel)
 dados_atual = memoria[id_sel]
 
-# --- 6. RENDERIZAÇÃO DAS ABAS ---
 if aba == "Dashboard":
-    col_tit, col_sts = st.columns([0.7, 0.3])
-    with col_tit:
-        st.markdown(f"## 🚀 {dados_atual['nome']} - {dados_atual['local']}")
-    with col_sts:
-        if not dados_atual['online']:
-            st.markdown("<div style='background-color:#555; color:white; padding:10px; border-radius:10px; text-align:center;'>⚪ OFFLINE</div>", unsafe_allow_html=True)
-        elif tem_alerta:
-            st.markdown("<div style='background-color:#ff4b4b; color:white; padding:10px; border-radius:10px; text-align:center; font-weight:bold;'>⚠️ ATENÇÃO: ALERTA</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div style='background-color:#28a745; color:white; padding:10px; border-radius:10px; text-align:center; font-weight:bold;'>✅ NORMAL</div>", unsafe_allow_html=True)
+    st.title(f"🚀 {dados_atual['nome']}")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("🌡️ Mancal", f"{dados_atual['mancal']:.1f} °C")
+    col2.metric("🌡️ Óleo", f"{dados_atual['oleo']:.1f} °C")
+    col3.metric("📳 Vibração", f"{dados_atual['rms']:.3f} mm/s²")
+    col4.metric("💧 Pressão", f"{dados_atual['pressao_bar'] * 10.197:.1f} MCA")
     
-    st.divider()
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("🌡️ Temp. Mancal", f"{dados_atual['mancal']:.1f} °C")
-    c2.metric("🌡️ Temp. Óleo", f"{dados_atual['oleo']:.1f} °C")
-    c3.metric("📳 Vibração RMS", f"{dados_atual['rms']:.3f} mm/s²")
-    c4.metric("💧 Pressão Saída", f"{dados_atual['pressao_bar'] * 10.197:.1f} MCA")
-
-    st.markdown("### 📊 Indicadores de Performance")
-    col_g1, col_g2, col_g3 = st.columns(3)
-    lim = st.session_state.limites
-    lay_g = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=30, r=30, t=50, b=20))
-
-    with col_g1:
-        fig_v = go.Figure(go.Indicator(
-            mode = "gauge+number", value = dados_atual['rms'],
-            title = {'text': "Vibração (RMS)", 'font': {'color': "#004a8d", 'size': 18}},
-            gauge = {
-                'axis': {'range': [0, lim['vib_rms']*1.5]},
-                'bar': {'color': "#ffa500", 'thickness': 1},
-                'bgcolor': "#f0f2f6",
-                'steps': [
-                    {'range': [0, lim['vib_rms']], 'color': "#e3f2fd"},
-                    {'range': [lim['vib_rms'], lim['vib_rms']*1.5], 'color': "#ffebee"}
-                ],
-                'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.8, 'value': lim['vib_rms']}
-            }
-        ))
-        fig_v.update_layout(lay_g)
+    # Gráficos de Indicador
+    c_g1, c_g2 = st.columns(2)
+    with c_g1:
+        fig_v = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['rms'], title={'text': "RMS Vibração"},
+                                       gauge={'axis': {'range': [0, 5]}, 'bar': {'color': "orange"}}))
         st.plotly_chart(fig_v, use_container_width=True)
-
-    with col_g2:
-        fig_p = go.Figure(go.Indicator(
-            mode = "gauge+number", value = dados_atual['pressao_bar'],
-            title = {'text': "Pressão (Bar)", 'font': {'color': "#004a8d", 'size': 18}},
-            gauge = {
-                'axis': {'range': [0, 12]},
-                'bar': {'color': "#0097d7", 'thickness': 1},
-                'bgcolor': "#f0f2f6",
-                'steps': [
-                    {'range': [0, 2], 'color': "#ffebee"},
-                    {'range': [2, 12], 'color': "#e3f2fd"}
-                ]
-            }
-        ))
-        fig_p.update_layout(lay_g)
+    with c_g2:
+        fig_p = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['pressao_bar'], title={'text': "Pressão (Bar)"},
+                                       gauge={'axis': {'range': [0, 15]}, 'bar': {'color': "blue"}}))
         st.plotly_chart(fig_p, use_container_width=True)
 
-    with col_g3:
-        fig_t = go.Figure(go.Indicator(
-            mode = "gauge+number", value = dados_atual['mancal'],
-            title = {'text': "Temp. Mancal (°C)", 'font': {'color': "#004a8d", 'size': 18}},
-            gauge = {
-                'axis': {'range': [0, 100]},
-                'bar': {'color': "#ff4b4b", 'thickness': 1},
-                'bgcolor': "#f0f2f6",
-                'steps': [
-                    {'range': [0, lim['temp_mancal']], 'color': "#e3f2fd"},
-                    {'range': [lim['temp_mancal'], 100], 'color': "#ffebee"}
-                ]
-            }
-        ))
-        fig_t.update_layout(lay_g)
-        st.plotly_chart(fig_t, use_container_width=True)
-
 elif aba == "Gráficos":
-    st.markdown(f"## 📈 Tendências - {dados_atual['nome']}")
-    if not dados_atual['historico']:
-        st.info("Aguardando telemetria...")
+    st.subheader("Tendências em Tempo Real")
+    if dados_atual['historico']:
+        df = pd.DataFrame(dados_atual['historico'])
+        st.plotly_chart(px.line(df, x="Hora", y=["Vib_X", "Vib_Y", "Vib_Z"], title="Vibração (Eixos)"))
+        st.plotly_chart(px.line(df, x="Hora", y="Pressao_Bar", title="Pressão (Bar)"))
     else:
-        df_hist = pd.DataFrame(dados_atual['historico'])
-        fig_xyz = px.line(df_hist, x="Hora", y=["Vib_X", "Vib_Y", "Vib_Z"], 
-                          title="Oscilação por Eixo",
-                          color_discrete_map={"Vib_X": "#004a8d", "Vib_Y": "#ff4b4b", "Vib_Z": "#ffa500"})
-        fig_xyz.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_xyz, use_container_width=True)
-        
-        c_l, c_r = st.columns(2)
-        with c_l:
-            st.plotly_chart(px.line(df_hist, x="Hora", y="Pressao_MCA", title="Pressão (MCA)", color_discrete_sequence=['#004a8d']), use_container_width=True)
-        with c_r:
-            st.plotly_chart(px.line(df_hist, x="Hora", y="Temp_Mancal", title="Temp. Mancal (°C)", color_discrete_sequence=['#ff4b4b']), use_container_width=True)
+        st.info("Aguardando dados...")
 
 elif aba == "Alertas":
-    st.markdown(f"### 🔔 Eventos: {dados_atual['nome']}")
-    alt_pendentes = [a for a in dados_atual['alertas'] if not a['Reconhecido']]
-    if not alt_pendentes: 
-        st.success("Sem alertas pendentes.")
-    else:
-        for i, a in enumerate(alt_pendentes):
-            with st.container(border=True):
-                c_st, c_tx, c_btn = st.columns([0.15, 0.65, 0.2])
-                cor = "#ff4b4b" if a['Status'] == "CRÍTICO" else "#ffa500"
-                c_st.markdown(f"<div style='background-color:{cor}; color:white; padding:8px; border-radius:5px; text-align:center;'>{a['Status']}</div>", unsafe_allow_html=True)
-                c_tx.markdown(f"**{a['Sensor']}** - {a['Mensagem']}\n\n🕒 {a['Hora']} | Valor: {a['Valor']}")
-                if c_btn.button("OK", key=f"btn_{id_sel}_{i}"):
-                    a['Reconhecido'] = True
-                    st.rerun()
+    st.subheader("🔔 Histórico de Alertas")
+    for a in dados_atual['alertas']:
+        st.warning(f"{a['Hora']} - {a['Mensagem']} (Valor: {a['Valor']})")
 
 elif aba == "Configurações":
-    st.title("⚙️ Configuração e Relatórios")
-    if not st.session_state.autenticado:
-        senha = st.text_input("Senha de Administrador:", type="password")
-        if st.button("Entrar"):
-            if senha == "admin123":
-                st.session_state.autenticado = True
-                st.rerun()
-            else: st.error("Senha inválida!")
-    else:
-        if st.sidebar.button("Logoff 🔓"):
-            st.session_state.autenticado = False
-            st.rerun()
-            
-        if dados_atual['historico']:
-            st.subheader("📊 Exportar Dados")
-            df_export = pd.DataFrame(dados_atual['historico'])
-            output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_export.to_excel(writer, index=False)
-            st.download_button("📥 Baixar Histórico Excel", output.getvalue(), f"relatorio_{id_sel}.xlsx")
-        
-        with st.form("form_limites"):
-            st.subheader("🔧 Ajuste de Limites")
-            atuais = st.session_state.limites
-            n_mancal = st.number_input("Limite Mancal (°C)", value=atuais['temp_mancal'])
-            n_rms = st.number_input("Limite RMS (mm/s²)", value=atuais['vib_rms'], format="%.3f")
-            n_p_max = st.number_input("Pressão Máxima (Bar)", value=atuais['pressao_max_bar'])
-            n_p_min = st.number_input("Pressão Mínima (Bar)", value=atuais['pressao_min_bar'])
-            
-            if st.form_submit_button("💾 Salvar Configurações"):
-                atuais.update({
-                    'temp_mancal': n_mancal, 
-                    'vib_rms': n_rms,
-                    'pressao_max_bar': n_p_max,
-                    'pressao_min_bar': n_p_min
-                })
-                salvar_configuracoes_arquivo(atuais)
-                st.success("Configurações salvas com sucesso!")
+    st.subheader("Ajustes de Limites")
+    with st.form("config"):
+        lim_mancal = st.number_input("Limite Mancal (°C)", value=st.session_state.limites['temp_mancal'])
+        lim_vib = st.number_input("Limite Vibração (RMS)", value=st.session_state.limites['vib_rms'])
+        if st.form_submit_button("Salvar"):
+            st.session_state.limites['temp_mancal'] = lim_mancal
+            st.session_state.limites['vib_rms'] = lim_vib
+            salvar_configuracoes_arquivo(st.session_state.limites)
+            st.success("Configurações Atualizadas!")
