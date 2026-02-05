@@ -56,20 +56,26 @@ if 'limites' not in st.session_state:
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
-# --- 3. SERVIDOR FLASK ---
+# --- 3. SERVIDOR FLASK (AJUSTADO PARA RENDER PORT 8080) ---
 app_flask = Flask(__name__)
 CORS(app_flask)
 
 @app_flask.route('/update', methods=['GET'])
 def update():
+    global memoria
     try:
         id_b = request.args.get('id', 'jacutinga_b01')
         def safe_float(v):
             try: return float(v)
             except: return 0.0
 
-        vx, vy, vz = safe_float(request.args.get('vx', 0)), safe_float(request.args.get('vy', 0)), safe_float(request.args.get('vz', 0))
-        mancal, oleo, p_bar = safe_float(request.args.get('mancal', 0)), safe_float(request.args.get('oleo', 0)), safe_float(request.args.get('pressao', 0))
+        vx = safe_float(request.args.get('vx', 0))
+        vy = safe_float(request.args.get('vy', 0))
+        vz = safe_float(request.args.get('vz', 0))
+        mancal = safe_float(request.args.get('mancal', 0))
+        oleo = safe_float(request.args.get('oleo', 0))
+        p_bar = safe_float(request.args.get('pressao', 0))
+        
         v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
 
         if id_b in memoria:
@@ -89,10 +95,12 @@ def update():
             memoria[id_b]['historico'].append(ponto)
             if len(memoria[id_b]['historico']) > 1000: memoria[id_b]['historico'].pop(0)
             return "OK", 200
-    except: return "Erro", 500
+    except Exception as e: 
+        return f"Erro: {str(e)}", 500
     return "ID Inválido", 400
 
 if 'thread_ativa' not in st.session_state:
+    # No Render, o Flask precisa rodar em 0.0.0.0
     threading.Thread(target=lambda: app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False), daemon=True).start()
     st.session_state['thread_ativa'] = True
 
@@ -128,7 +136,7 @@ def verificar_alertas(id_b):
     return any(not a['Reconhecido'] for a in dados['alertas'])
 
 # --- 5. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Monitor de Ativos", layout="wide")
+st.set_page_config(page_title="Monitor de Ativos Jacutinga", layout="wide")
 st_autorefresh(interval=3000, key="refresh_global")
 atualizar_status_conexao()
 
@@ -180,7 +188,6 @@ if aba == "Dashboard":
     col_g1, col_g2, col_g3 = st.columns(3)
     lim = st.session_state.limites
     
-    # Estilo de layout para remover o cinza de fundo
     lay_g = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=30, r=30, t=50, b=20))
 
     with col_g1:
@@ -189,18 +196,18 @@ if aba == "Dashboard":
             title = {'text': "Vibração (RMS)", 'font': {'color': "#004a8d", 'size': 18}},
             gauge = {
                 'axis': {'range': [0, lim['vib_rms']*1.5]},
-                'bar': {'color': "#ffa500", 'thickness': 1}, # Barra preenchida
+                'bar': {'color': "#ffa500", 'thickness': 1},
                 'bgcolor': "#f0f2f6",
                 'borderwidth': 0,
                 'steps': [
-                    {'range': [0, lim['vib_rms']], 'color': "#e3f2fd"}, # Azul clarinho
-                    {'range': [lim['vib_rms'], lim['vib_rms']*1.5], 'color': "#ffebee"} # Vermelho clarinho
+                    {'range': [0, lim['vib_rms']], 'color': "#e3f2fd"},
+                    {'range': [lim['vib_rms'], lim['vib_rms']*1.5], 'color': "#ffebee"}
                 ],
                 'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.8, 'value': lim['vib_rms']}
             }
         ))
         fig_v.update_layout(lay_g)
-        st.plotly_chart(fig_v, use_container_width=True)
+        st.plotly_chart(fig_v, width="stretch")
 
     with col_g2:
         fig_p = go.Figure(go.Indicator(
@@ -218,7 +225,7 @@ if aba == "Dashboard":
             }
         ))
         fig_p.update_layout(lay_g)
-        st.plotly_chart(fig_p, use_container_width=True)
+        st.plotly_chart(fig_p, width="stretch")
 
     with col_g3:
         fig_t = go.Figure(go.Indicator(
@@ -236,7 +243,7 @@ if aba == "Dashboard":
             }
         ))
         fig_t.update_layout(lay_g)
-        st.plotly_chart(fig_t, use_container_width=True)
+        st.plotly_chart(fig_t, width="stretch")
 
 elif aba == "Gráficos":
     st.markdown(f"## 📈 Tendências - {dados_atual['nome']}")
@@ -248,13 +255,13 @@ elif aba == "Gráficos":
                           title="Oscilação por Eixo",
                           color_discrete_map={"Vib_X": "#004a8d", "Vib_Y": "#ff4b4b", "Vib_Z": "#ffa500"})
         fig_xyz.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_xyz, use_container_width=True)
+        st.plotly_chart(fig_xyz, width="stretch")
         
         c_l, c_r = st.columns(2)
         with c_l:
-            st.plotly_chart(px.line(df_hist, x="Hora", y="Pressao_MCA", title="Pressão (MCA)", color_discrete_sequence=['#004a8d']), use_container_width=True)
+            st.plotly_chart(px.line(df_hist, x="Hora", y="Pressao_MCA", title="Pressão (MCA)", color_discrete_sequence=['#004a8d']), width="stretch")
         with c_r:
-            st.plotly_chart(px.line(df_hist, x="Hora", y="Temp_Mancal", title="Temp. Mancal (°C)", color_discrete_sequence=['#ff4b4b']), use_container_width=True)
+            st.plotly_chart(px.line(df_hist, x="Hora", y="Temp_Mancal", title="Temp. Mancal (°C)", color_discrete_sequence=['#ff4b4b']), width="stretch")
 
 elif aba == "Alertas":
     st.markdown(f"### 🔔 Eventos: {dados_atual['nome']}")
