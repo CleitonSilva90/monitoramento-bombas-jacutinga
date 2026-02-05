@@ -1,5 +1,4 @@
 import streamlit as st
-import pd
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -58,20 +57,20 @@ if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
 # --- 3. PROCESSADOR DE DADOS UNIFICADO ---
-def processar_entrada(dados_brutos):
+def processar_entrada(params):
     try:
-        id_b = dados_brutos.get('id', 'jacutinga_b01')
+        id_b = params.get('id', 'jacutinga_b01')
         if id_b in memoria:
             def safe_f(v):
                 try: return float(v)
                 except: return 0.0
 
-            vx = safe_f(dados_brutos.get('vx', 0))
-            vy = safe_f(dados_brutos.get('vy', 0))
-            vz = safe_f(dados_brutos.get('vz', 0))
-            mancal = safe_f(dados_brutos.get('mancal', 0))
-            oleo = safe_f(dados_brutos.get('oleo', 0))
-            p_bar = safe_f(dados_brutos.get('pressao', 0))
+            vx = safe_f(params.get('vx', 0))
+            vy = safe_f(params.get('vy', 0))
+            vz = safe_f(params.get('vz', 0))
+            mancal = safe_f(params.get('mancal', 0))
+            oleo = safe_f(params.get('oleo', 0))
+            p_bar = safe_f(params.get('pressao', 0))
             
             v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
 
@@ -98,11 +97,11 @@ def processar_entrada(dados_brutos):
         return False
     return False
 
-# CAPTURA DIRETA VIA STREAMLIT (PARA O RENDER)
+# Captura direta via URL (Para o Render)
 if st.query_params:
     processar_entrada(st.query_params)
 
-# SERVIDOR FLASK (PARA TESTES LOCAIS)
+# Servidor Flask (Para compatibilidade local)
 app_flask = Flask(__name__)
 CORS(app_flask)
 @app_flask.route('/update', methods=['GET'])
