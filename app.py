@@ -11,7 +11,6 @@ from datetime import datetime
 from streamlit_option_menu import option_menu
 from streamlit_autorefresh import st_autorefresh
 import io
-from urllib.parse import parse_qs
 
 # --- 1. FUNÇÕES DE PERSISTÊNCIA ---
 ARQUIVO_CONFIG = 'config_bombas.json'
@@ -103,7 +102,7 @@ def processar_dados_recebidos(params):
                         'historico': memoria[id_b]['historico'][-100:],
                         'alertas': memoria[id_b]['alertas']
                     }, f)
-                print(f"✅ Dados recebidos: {id_b} - Temp:{mancal}°C Press:{p_bar}Bar")
+                print(f"✅ [{datetime.now().strftime('%H:%M:%S')}] Dados recebidos: {id_b} | Temp:{mancal:.1f}°C | Press:{p_bar:.1f}Bar | RMS:{v_rms:.2f}")
             except Exception as e:
                 print(f"❌ Erro ao salvar sync: {e}")
                 
@@ -113,43 +112,32 @@ def processar_dados_recebidos(params):
         return False
     return False
 
-# --- 4. CAPTURA DE QUERY PARAMS (SUBSTITUI O FLASK) ---
-def capturar_dados_url():
-    """Captura dados enviados via URL query params"""
+# --- 4. DETECÇÃO E PROCESSAMENTO DE API (ANTES DE RENDERIZAR) ---
+# Captura query params ANTES de qualquer renderização
+query_params = st.query_params
+
+# Se tem parâmetro 'id', é uma chamada da API
+if 'id' in query_params:
     try:
-        # Pega os parâmetros da URL
-        query_params = st.query_params
+        params_dict = dict(query_params)
+        print(f"📥 [{datetime.now().strftime('%H:%M:%S')}] Requisição API recebida: {params_dict}")
         
-        # Se tem parâmetros, processa
-        if query_params:
-            params_dict = dict(query_params)
-            
-            # Verifica se é uma requisição /update ou /status
-            if 'id' in params_dict:  # É envio de dados
-                print(f"📥 Recebendo dados via URL: {params_dict}")
-                if processar_dados_recebidos(params_dict):
-                    # Limpa os query params para não reprocessar
-                    st.query_params.clear()
-                    return "OK"
-            elif 'status' in params_dict:  # Health check
-                return {"status": "online", "timestamp": time.time()}
-                
+        if processar_dados_recebidos(params_dict):
+            st.set_page_config(page_title="API Response", layout="centered")
+            st.markdown("### ✅ OK")
+            st.markdown(f"**Dados recebidos:** {params_dict.get('id')}")
+            st.markdown(f"**Timestamp:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
+            st.stop()
+        else:
+            st.set_page_config(page_title="API Error", layout="centered")
+            st.error("❌ Erro ao processar dados")
+            st.stop()
     except Exception as e:
-        print(f"❌ Erro ao capturar URL: {e}")
-    return None
-
-# Captura dados da URL no início
-resposta_api = capturar_dados_url()
-
-# Se for uma chamada de API, retorna direto sem renderizar
-if resposta_api:
-    if resposta_api == "OK":
-        st.write("OK")
-        st.stop()
-    else:
-        st.json(resposta_api)
+        st.set_page_config(page_title="API Error", layout="centered")
+        st.error(f"❌ Erro: {str(e)}")
         st.stop()
 
+# Se chegou aqui, não é uma chamada de API, renderiza normalmente
 # --- 5. LÓGICA DE SINCRONIZAÇÃO E STATUS ---
 def sincronizar_dados():
     """Lê os arquivos de sincronização para atualizar a interface do Streamlit"""
@@ -173,7 +161,7 @@ def sincronizar_dados():
                     if 'alertas' in dados_sync:
                         memoria[id_b]['alertas'] = dados_sync['alertas']
             except Exception as e:
-                print(f"Erro ao sincronizar {id_b}: {e}")
+                pass  # Silencioso para não poluir logs
         
         # 2. Atualizar status Online/Offline (60 segundos de timeout)
         visto = memoria[id_b].get('ultimo_visto')
