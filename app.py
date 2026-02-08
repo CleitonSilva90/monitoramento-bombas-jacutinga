@@ -42,18 +42,15 @@ if 'limites' not in st.session_state:
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
-# --- 3. PROCESSADOR DE API (CORREÇÃO PARA RENDER) ---
-# Usando o método experimental que o Render aceita melhor para requisições do ESP32
-query_params = st.experimental_get_query_params()
+# --- 3. PROCESSADOR DE API (VERSÃO ATUALIZADA PARA O RENDER) ---
+# Substituímos st.experimental_get_query_params() por st.query_params
+params = st.query_params.to_dict()
 
-if 'id' in query_params:
+if 'id' in params:
     try:
-        # No experimental_get_query_params, os valores vêm em listas [valor]
-        id_b = query_params['id'][0]
-
+        id_b = params['id']
         def safe_f(key):
-            # Tenta pegar o valor da lista, se não existir retorna 0.0 em lista
-            return float(query_params.get(key, ["0"])[0])
+            return float(params.get(key, 0))
 
         vx, vy, vz = safe_f('vx'), safe_f('vy'), safe_f('vz')
         mancal, oleo, p_bar = safe_f('mancal'), safe_f('oleo'), safe_f('pressao')
@@ -86,7 +83,6 @@ def sincronizar_dados():
             id_b = item['id_bomba']
             if id_b in memoria:
                 att_str = item['ultima_atualizacao'].replace('T', ' ').split('+')[0]
-                # Converte para objeto datetime para comparar tempo
                 try:
                     ultima_att = datetime.strptime(att_str, '%Y-%m-%d %H:%M:%S.%f')
                 except:
@@ -133,7 +129,7 @@ with st.sidebar:
 tem_alerta = verificar_alertas(id_sel)
 dados_atual = memoria[id_sel]
 
-# --- 7. ABAS (TUDO RESTAURADO) ---
+# --- 7. ABAS ---
 if aba == "Dashboard":
     col_tit, col_sts = st.columns([0.7, 0.3])
     with col_tit: st.markdown(f"## 🚀 {dados_atual['nome']} - {dados_atual['local']}")
@@ -186,7 +182,7 @@ elif aba == "Configurações":
             col3, col4 = st.columns(2)
             n_rms = col3.number_input("Vibração Máx (mm/s²)", value=float(l['vib_rms']), format="%.3f")
             n_p_max = col4.number_input("Pressão Máxima (Bar)", value=float(l['pressao_max_bar']))
-            n_p_min = st.number_input("Pressão Mínima (Bar)", value=float(l['pressao_min_bar']))
+            n_p_min = col4.number_input("Pressão Mínima (Bar)", value=float(l['pressao_min_bar']))
             if st.form_submit_button("💾 Salvar"):
                 l.update({'temp_mancal': n_mancal, 'temp_oleo': n_oleo, 'vib_rms': n_rms, 'pressao_max_bar': n_p_max, 'pressao_min_bar': n_p_min})
                 st.success("Salvo!")
