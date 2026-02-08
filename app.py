@@ -58,9 +58,8 @@ if 'autenticado' not in st.session_state:
 
 # --- 3. PROCESSADOR DE DADOS UNIFICADO ---
 def processar_dados_recebidos(params):
-    """Processa dados vindos tanto do Flask quanto do Streamlit URL"""
     try:
-        # Limpeza para capturar dados da URL do Streamlit (que vêm como listas)
+        # Converte listas do Streamlit em valores únicos
         dados = {k: (v[0] if isinstance(v, list) else v) for k, v in params.items()}
         
         id_b = dados.get('id', 'jacutinga_b01')
@@ -75,7 +74,6 @@ def processar_dados_recebidos(params):
             mancal = safe_f(dados.get('mancal', 0))
             oleo = safe_f(dados.get('oleo', 0))
             p_bar = safe_f(dados.get('pressao', 0))
-            
             v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
 
             memoria[id_b].update({
@@ -84,10 +82,9 @@ def processar_dados_recebidos(params):
                 'ultimo_visto': time.time(), 'online': True
             })
             
-            agora = datetime.now()
             ponto = {
-                "Data_Hora": agora.strftime("%d/%m/%Y %H:%M:%S"), 
-                "Hora": agora.strftime("%H:%M:%S"),
+                "Data_Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"), 
+                "Hora": datetime.now().strftime("%H:%M:%S"),
                 "RMS_Vibracao": round(v_rms, 3), 
                 "Vib_X": vx, "Vib_Y": vy, "Vib_Z": vz,
                 "Temp_Mancal": mancal, "Temp_Oleo": oleo,
@@ -101,11 +98,11 @@ def processar_dados_recebidos(params):
         return False
     return False
 
-# Captura direta via URL (Importante para o Render)
+# Captura via URL Streamlit
 if st.query_params:
     processar_dados_recebidos(st.query_params.to_dict())
 
-# Servidor Flask (Thread secundária)
+# Servidor Flask
 app_flask = Flask(__name__)
 CORS(app_flask)
 @app_flask.route('/update', methods=['GET'])
@@ -211,12 +208,9 @@ if aba == "Dashboard":
             mode = "gauge+number", value = dados_atual['rms'],
             title = {'text': "Vibração (RMS)", 'font': {'color': "#004a8d", 'size': 18}},
             gauge = {
-                'axis': {'range': [0, 5]},
-                'bar': {'color': "#ffa500"},
-                'steps': [
-                    {'range': [0, lim['vib_rms']], 'color': "#e3f2fd"},
-                    {'range': [lim['vib_rms'], 5], 'color': "#ffebee"}
-                ],
+                'axis': {'range': [0, 5]}, 'bar': {'color': "#ffa500"},
+                'steps': [{'range': [0, lim['vib_rms']], 'color': "#e3f2fd"},
+                          {'range': [lim['vib_rms'], 5], 'color': "#ffebee"}],
                 'threshold': {'line': {'color': "red", 'width': 4}, 'value': lim['vib_rms']}
             }
         ))
@@ -228,8 +222,7 @@ if aba == "Dashboard":
             mode = "gauge+number", value = dados_atual['pressao_bar'],
             title = {'text': "Pressão (Bar)", 'font': {'color': "#004a8d", 'size': 18}},
             gauge = {
-                'axis': {'range': [0, 12]},
-                'bar': {'color': "#0097d7"},
+                'axis': {'range': [0, 12]}, 'bar': {'color': "#0097d7"},
                 'steps': [{'range': [0, 2], 'color': "#ffebee"}, {'range': [2, 12], 'color': "#e3f2fd"}]
             }
         ))
@@ -241,12 +234,9 @@ if aba == "Dashboard":
             mode = "gauge+number", value = dados_atual['mancal'],
             title = {'text': "Temp. Mancal (°C)", 'font': {'color': "#004a8d", 'size': 18}},
             gauge = {
-                'axis': {'range': [0, 100]},
-                'bar': {'color': "#ff4b4b"},
-                'steps': [
-                    {'range': [0, lim['temp_mancal']], 'color': "#e3f2fd"},
-                    {'range': [lim['temp_mancal'], 100], 'color': "#ffebee"}
-                ]
+                'axis': {'range': [0, 100]}, 'bar': {'color': "#ff4b4b"},
+                'steps': [{'range': [0, lim['temp_mancal']], 'color': "#e3f2fd"},
+                          {'range': [lim['temp_mancal'], 100], 'color': "#ffebee"}]
             }
         ))
         fig_t.update_layout(lay_g)
@@ -278,7 +268,6 @@ elif aba == "Alertas":
 
 elif aba == "Configurações":
     st.markdown("## ⚙️ Configurações do Sistema")
-    
     if not st.session_state.autenticado:
         col_log = st.columns([1, 2, 1])
         with col_log[1]:
@@ -292,40 +281,25 @@ elif aba == "Configurações":
         if st.button("Encerrar Sessão 🔓"):
             st.session_state.autenticado = False
             st.rerun()
-            
         st.divider()
-        # --- SEÇÃO DE LIMITES ---
         st.subheader("🔧 Ajuste de Limites Críticos")
         with st.form("limites_operacionais"):
             atuais = st.session_state.limites
-            col_l1, col_l2 = st.columns(2)
-            n_mancal = col_l1.number_input("Temp. Mancal Máx (°C)", value=float(atuais['temp_mancal']))
-            n_rms = col_l2.number_input("Vibração RMS Máx (mm/s²)", value=float(atuais['vib_rms']), format="%.3f")
-            
-            col_l3, col_l4 = st.columns(2)
-            n_p_max = col_l3.number_input("Pressão Máxima (Bar)", value=float(atuais['pressao_max_bar']))
-            n_p_min = col_l4.number_input("Pressão Mínima (Bar)", value=float(atuais['pressao_min_bar']))
-            
+            c_l1, c_l2 = st.columns(2)
+            n_mancal = c_l1.number_input("Temp. Mancal Máx (°C)", value=float(atuais['temp_mancal']))
+            n_rms = c_l2.number_input("Vibração RMS Máx (mm/s²)", value=float(atuais['vib_rms']), format="%.3f")
+            c_l3, c_l4 = st.columns(2)
+            n_p_max = c_l3.number_input("Pressão Máxima (Bar)", value=float(atuais['pressao_max_bar']))
+            n_p_min = c_l4.number_input("Pressão Mínima (Bar)", value=float(atuais['pressao_min_bar']))
             if st.form_submit_button("💾 Salvar Configurações"):
-                atuais.update({
-                    'temp_mancal': n_mancal, 'vib_rms': n_rms, 
-                    'pressao_max_bar': n_p_max, 'pressao_min_bar': n_p_min
-                })
+                atuais.update({'temp_mancal': n_mancal, 'vib_rms': n_rms, 'pressao_max_bar': n_p_max, 'pressao_min_bar': n_p_min})
                 salvar_configuracoes_arquivo(atuais)
-                st.success("Limites atualizados e salvos no arquivo!")
+                st.success("Limites atualizados!")
 
         st.divider()
-        # --- SEÇÃO DE EXPORTAÇÃO ---
         st.subheader("📊 Exportação de Dados")
         if dados_atual['historico']:
             df_exp = pd.DataFrame(dados_atual['historico'])
             towrite = io.BytesIO()
             df_exp.to_excel(towrite, index=False, engine='openpyxl')
-            st.download_button(
-                label="📥 Baixar Histórico em Excel",
-                data=towrite.getvalue(),
-                file_name=f"relatorio_{id_sel}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-                mime="application/vnd.ms-excel"
-            )
-        else:
-            st.info("Nenhum dado disponível para exportação no momento.")
+            st.download_button(label="📥 Baixar Histórico em Excel", data=towrite.getvalue(), file_name=f"relatorio_{id_sel}.xlsx", mime="application/vnd.ms-excel")
