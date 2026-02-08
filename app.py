@@ -2,17 +2,25 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import threading
 import time
 import math
-import json
 import os
+import io
 from datetime import datetime
+from supabase import create_client
 from streamlit_option_menu import option_menu
 from streamlit_autorefresh import st_autorefresh
-import io
 
-# --- 1. FUNÇÕES DE PERSISTÊNCIA ---
+# --- 1. CONFIGURAÇÃO SUPABASE ---
+# SUBSTITUA PELAS SUAS CHAVES DO PAINEL API DO SUPABASE
+URL_SUPABASE = "https://iemojjmgzyrxddochnlq.supabase.co"
+KEY_SUPABASE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllbW9qam1nenlyeGRkb2NobmxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MzU2NTYsImV4cCI6MjA4NjExMTY1Nn0.Adeu9DBblWBUQfwlJS9XrcKWixNRqRizFEZ0TOkx7eY"
+supabase = create_client(URL_SUPABASE, KEY_SUPABASE)
+
+# --- 2. CONFIGURAÇÃO INICIAL STREAMLIT ---
+st.set_page_config(page_title="Monitor de Ativos Jacutinga", layout="wide")
+
+# --- 3. MEMÓRIA E PERSISTÊNCIA ---
 ARQUIVO_CONFIG = 'config_bombas.json'
 
 def carregar_configuracoes():
@@ -24,21 +32,14 @@ def carregar_configuracoes():
         try:
             with open(ARQUIVO_CONFIG, 'r') as f:
                 return json.load(f)
-        except:
-            return padrao
+        except: return padrao
     return padrao
 
-def salvar_configuracoes_arquivo(novos_dados):
-    with open(ARQUIVO_CONFIG, 'w') as f:
-        json.dump(novos_dados, f)
-
-# --- 2. MEMÓRIA GLOBAL (CACHE) ---
 @st.cache_resource
 def obter_memoria_global():
     base = {
         "mancal": 0.0, "oleo": 0.0, "vx": 0.0, "vy": 0.0, "vz": 0.0, "rms": 0.0, 
-        "pressao_bar": 0.0, "historico": [], "alertas": [], 
-        "ultimo_visto": None, "online": False
+        "pressao_bar": 0.0, "alertas": [], "online": False
     }
     return {
         "jacutinga_b01": {**base, "nome": "Bomba 01", "local": "Jacutinga"},
@@ -54,193 +55,80 @@ if 'limites' not in st.session_state:
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
-# --- 3. PROCESSADOR DE DADOS UNIFICADO ---
-def processar_dados_recebidos(params):
-    try:
-        dados = {k: (v[0] if isinstance(v, list) else v) for k, v in params.items()}
-        id_b = dados.get('id', 'jacutinga_b01')
-        
-        if id_b in memoria:
-            def safe_f(v):
-                try: return float(v)
-                except: return 0.0
-
-            vx = safe_f(dados.get('vx', 0))
-            vy = safe_f(dados.get('vy', 0))
-            vz = safe_f(dados.get('vz', 0))
-            mancal = safe_f(dados.get('mancal', 0))
-            oleo = safe_f(dados.get('oleo', 0))
-            p_bar = safe_f(dados.get('pressao', 0))
-            v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
-
-            # Atualiza objeto em memória
-            memoria[id_b].update({
-                'vx': vx, 'vy': vy, 'vz': vz, 'rms': v_rms, 
-                'mancal': mancal, 'oleo': oleo, 'pressao_bar': p_bar,
-                'ultimo_visto': time.time(), 'online': True
-            })
-            
-            ponto = {
-                "Data_Hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S"), 
-                "Hora": datetime.now().strftime("%H:%M:%S"),
-                "RMS_Vibracao": round(v_rms, 3), 
-                "Vib_X": vx, "Vib_Y": vy, "Vib_Z": vz,
-                "Temp_Mancal": mancal, "Temp_Oleo": oleo,
-                "Pressao_Bar": p_bar, "Pressao_MCA": round(p_bar * 10.197, 2)
-            }
-            memoria[id_b]['historico'].append(ponto)
-            if len(memoria[id_b]['historico']) > 1000:
-                memoria[id_b]['historico'].pop(0)
-
-            # SALVAMENTO EM ARQUIVO (SINCRONIZAÇÃO)
-            try:
-                with open(f"sync_{id_b}.json", "w") as f:
-                    json.dump({
-                        'vx': vx, 'vy': vy, 'vz': vz, 'rms': v_rms,
-                        'mancal': mancal, 'oleo': oleo, 'pressao_bar': p_bar,
-                        'ultimo_visto': time.time(), 'online': True,
-                        'historico': memoria[id_b]['historico'][-100:],
-                        'alertas': memoria[id_b]['alertas']
-                    }, f)
-                print(f"✅ [{datetime.now().strftime('%H:%M:%S')}] Dados recebidos: {id_b} | Temp:{mancal:.1f}°C | Press:{p_bar:.1f}Bar | RMS:{v_rms:.2f}")
-            except Exception as e:
-                print(f"❌ Erro ao salvar sync: {e}")
-                
-            return True
-    except Exception as e:
-        print(f"❌ Erro ao processar dados: {e}")
-        return False
-    return False
-
-# --- 4. DETECÇÃO E PROCESSAMENTO DE API (ANTES DE RENDERIZAR) ---
-# Captura query params ANTES de qualquer renderização
+# --- 4. PROCESSADOR DE API (RECEBIMENTO DO ESP32) ---
 query_params = st.query_params
 
-# Se tem parâmetro 'id', é uma chamada da API
-if 'id' in query_params:
+if "id" in query_params:
     try:
-        params_dict = dict(query_params)
-        print(f"📥 [{datetime.now().strftime('%H:%M:%S')}] Requisição API recebida: {params_dict}")
-        
-        if processar_dados_recebidos(params_dict):
-            st.set_page_config(page_title="API Response", layout="centered")
-            st.markdown("### ✅ OK")
-            st.markdown(f"**Dados recebidos:** {params_dict.get('id')}")
-            st.markdown(f"**Timestamp:** {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}")
-            st.stop()
-        else:
-            st.set_page_config(page_title="API Error", layout="centered")
-            st.error("❌ Erro ao processar dados")
-            st.stop()
+        id_b = query_params.get("id")
+        def safe_f(v):
+            try: return float(v[0] if isinstance(v, list) else v)
+            except: return 0.0
+
+        vx = safe_f(query_params.get('vx', 0))
+        vy = safe_f(query_params.get('vy', 0))
+        vz = safe_f(query_params.get('vz', 0))
+        mancal = safe_f(query_params.get('mancal', 0))
+        oleo = safe_f(query_params.get('oleo', 0))
+        p_bar = safe_f(query_params.get('pressao', 0))
+        v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
+
+        # Gravação no Banco (Upsert para status atual)
+        supabase.table("telemetria_atual").upsert({
+            "id_bomba": id_b,
+            "mancal": mancal, "oleo": oleo,
+            "vx": vx, "vy": vy, "vz": vz, "rms": v_rms,
+            "pressao_bar": p_bar,
+            "ultima_atualizacao": "now()"
+        }).execute()
+
+        # Gravação no Histórico (Para gráficos)
+        supabase.table("historico_bombas").insert({
+            "id_bomba": id_b,
+            "mancal": mancal, "oleo": oleo,
+            "rms": v_rms, "pressao_bar": p_bar
+        }).execute()
+
+        st.write("✅ OK")
+        st.stop()
     except Exception as e:
-        st.set_page_config(page_title="API Error", layout="centered")
-        st.error(f"❌ Erro: {str(e)}")
+        st.write(f"❌ Erro: {e}")
         st.stop()
 
-# Se chegou aqui, não é uma chamada de API, renderiza normalmente
-# --- 5. LÓGICA DE SINCRONIZAÇÃO E STATUS ---
+# --- 5. SINCRONIZAÇÃO (LEITURA DO BANCO PARA O DASHBOARD) ---
 def sincronizar_dados():
-    """Lê os arquivos de sincronização para atualizar a interface do Streamlit"""
-    agora = time.time()
-    for id_b in memoria.keys():
-        # 1. Tentar ler do arquivo de sincronização
-        arq = f"sync_{id_b}.json"
-        if os.path.exists(arq):
-            try:
-                with open(arq, "r") as f:
-                    dados_sync = json.load(f)
-                    # Atualiza apenas campos relevantes
-                    for key in ['vx', 'vy', 'vz', 'rms', 'mancal', 'oleo', 'pressao_bar', 'ultimo_visto', 'online']:
-                        if key in dados_sync:
-                            memoria[id_b][key] = dados_sync[key]
-                    
-                    # Atualiza histórico se tiver dados novos
-                    if 'historico' in dados_sync and len(dados_sync['historico']) > 0:
-                        memoria[id_b]['historico'] = dados_sync['historico']
-                    
-                    if 'alertas' in dados_sync:
-                        memoria[id_b]['alertas'] = dados_sync['alertas']
-            except Exception as e:
-                pass  # Silencioso para não poluir logs
-        
-        # 2. Atualizar status Online/Offline (60 segundos de timeout)
-        visto = memoria[id_b].get('ultimo_visto')
-        if visto and (agora - visto > 60):
-            memoria[id_b]['online'] = False
+    try:
+        res = supabase.table("telemetria_atual").select("*").execute()
+        agora = datetime.now()
+        for item in res.data:
+            id_b = item['id_bomba']
+            if id_b in memoria:
+                memoria[id_b].update({
+                    "mancal": item['mancal'], "oleo": item['oleo'],
+                    "vx": item['vx'], "vy": item['vy'], "vz": item['vz'],
+                    "rms": item['rms'], "pressao_bar": item['pressao_bar'],
+                    "online": True
+                })
+    except: pass
 
-# --- 6. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Monitor de Ativos", layout="wide")
 st_autorefresh(interval=3000, key="refresh_global")
-
-# Executa sincronização antes de desenhar a tela
 sincronizar_dados()
 
-def verificar_alertas(id_b):
-    dados = memoria[id_b]
-    lim = st.session_state.limites
-    agora_f = datetime.now().strftime("%d/%m/%Y %H:%M")
-    novos = []
-    
-    if dados['pressao_bar'] > lim['pressao_max_bar']:
-        novos.append(("Pressão", "CRÍTICO", "PRESSÃO ACIMA DO LIMITE", dados['pressao_bar']))
-    elif 0.1 < dados['pressao_bar'] < lim['pressao_min_bar']:
-        novos.append(("Pressão", "CRÍTICO", "PRESSÃO BAIXA - ADUTORA", dados['pressao_bar']))
-    if dados['mancal'] > lim['temp_mancal']:
-        novos.append(("Temp. Mancal", "CRÍTICO", "LIMITE EXCEDIDO", dados['mancal']))
-    if dados['rms'] > lim['vib_rms']:
-        novos.append(("Vibração", "CRÍTICO", "VIBRAÇÃO ELEVADA", dados['rms']))
-
-    for sensor, status, msg, valor in novos:
-        if not any(a['Mensagem'] == msg and not a['Reconhecido'] for a in dados['alertas']):
-            dados['alertas'].insert(0, {
-                "Equipamento": dados['nome'], "Sensor": sensor, "Mensagem": msg, 
-                "Hora": agora_f, "Valor": round(valor, 2), "Status": status, "Reconhecido": False
-            })
-    return any(not a['Reconhecido'] for a in dados['alertas'])
-
-# --- 7. INTERFACE STREAMLIT ---
+# --- 6. INTERFACE SIDEBAR ---
 with st.sidebar:
     st.markdown("<div style='text-align: center;'><img src='https://cdn-icons-png.flaticon.com/512/3105/3105807.png' width='80'></div>", unsafe_allow_html=True)
     st.divider()
-    
     id_sel = st.selectbox("📍 Selecionar Ativo:", list(memoria.keys()), format_func=lambda x: f"{memoria[x]['nome']} - {memoria[x]['local']}")
     
-    st.markdown("### 🌐 Status de Conexão")
-    for id_b, d in memoria.items():
-        cor_led = "🟢" if d['online'] else "🔴"
-        ultimo = d.get('ultimo_visto')
-        if ultimo:
-            tempo_desde = int(time.time() - ultimo)
-            st.write(f"{cor_led} **{d['nome']}** ({tempo_desde}s)")
-        else:
-            st.write(f"{cor_led} **{d['nome']}** (sem dados)")
+    aba = option_menu(None, ["Dashboard", "Gráficos", "Alertas", "Configurações"], 
+        icons=["speedometer2", "graph-up", "bell-fill", "gear-fill"], default_index=0,
+        styles={"nav-link-selected": {"background-color": "#004a8d"}})
 
-    st.divider()
-    aba = option_menu(
-        menu_title=None, 
-        options=["Dashboard", "Gráficos", "Alertas", "Configurações"],
-        icons=["speedometer2", "graph-up", "bell-fill", "gear-fill"], 
-        default_index=0,
-        styles={"nav-link-selected": {"background-color": "#004a8d"}},
-        key="menu_principal"
-    )
-
-tem_alerta = verificar_alertas(id_sel)
 dados_atual = memoria[id_sel]
 
-# --- 8. RENDERIZAÇÃO ---
+# --- 7. DASHBOARD ---
 if aba == "Dashboard":
-    col_tit, col_sts = st.columns([0.7, 0.3])
-    with col_tit:
-        st.markdown(f"## 🚀 {dados_atual['nome']} - {dados_atual['local']}")
-    with col_sts:
-        if not dados_atual['online']:
-            st.markdown("<div style='background-color:#555; color:white; padding:10px; border-radius:10px; text-align:center;'>⚪ OFFLINE</div>", unsafe_allow_html=True)
-        elif tem_alerta:
-            st.markdown("<div style='background-color:#ff4b4b; color:white; padding:10px; border-radius:10px; text-align:center; font-weight:bold;'>⚠️ ATENÇÃO: ALERTA</div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div style='background-color:#28a745; color:white; padding:10px; border-radius:10px; text-align:center; font-weight:bold;'>✅ NORMAL</div>", unsafe_allow_html=True)
-    
+    st.markdown(f"## 🚀 {dados_atual['nome']} - {dados_atual['local']}")
     st.divider()
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("🌡️ Temp. Mancal", f"{dados_atual['mancal']:.1f} °C")
@@ -248,134 +136,44 @@ if aba == "Dashboard":
     c3.metric("📳 Vibração RMS", f"{dados_atual['rms']:.3f} mm/s²")
     c4.metric("💧 Pressão Saída", f"{dados_atual['pressao_bar'] * 10.197:.1f} MCA")
 
-    st.markdown("### 📊 Indicadores de Performance")
     col_g1, col_g2, col_g3 = st.columns(3)
-    lim = st.session_state.limites
-    lay_g = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=300, margin=dict(l=30, r=30, t=50, b=20))
+    # Gauge Vibração
+    fig_v = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['rms'], title={'text': "Vibração RMS"},
+        gauge={'axis':{'range':[0,5]}, 'bar':{'color':"orange"}, 'threshold':{'line':{'color':"red",'width':4},'value':st.session_state.limites['vib_rms']}}))
+    col_g1.plotly_chart(fig_v, use_container_width=True)
 
-    with col_g1:
-        fig_v = go.Figure(go.Indicator(
-            mode = "gauge+number", value = dados_atual['rms'],
-            title = {'text': "Vibração (RMS)", 'font': {'color': "#004a8d", 'size': 18}},
-            gauge = {
-                'axis': {'range': [0, 5]}, 'bar': {'color': "#ffa500"},
-                'steps': [{'range': [0, lim['vib_rms']], 'color': "#e3f2fd"},
-                          {'range': [lim['vib_rms'], 5], 'color': "#ffebee"}],
-                'threshold': {'line': {'color': "red", 'width': 4}, 'value': lim['vib_rms']}
-            }
-        ))
-        fig_v.update_layout(lay_g)
-        st.plotly_chart(fig_v, use_container_width=True)
+    # Gauge Pressão
+    fig_p = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['pressao_bar'], title={'text': "Pressão (Bar)"},
+        gauge={'axis':{'range':[0,12]}, 'bar':{'color':"#0097d7"}}))
+    col_g2.plotly_chart(fig_p, use_container_width=True)
 
-    with col_g2:
-        fig_p = go.Figure(go.Indicator(
-            mode = "gauge+number", value = dados_atual['pressao_bar'],
-            title = {'text': "Pressão (Bar)", 'font': {'color': "#004a8d", 'size': 18}},
-            gauge = {
-                'axis': {'range': [0, 12]}, 'bar': {'color': "#0097d7"},
-                'steps': [{'range': [0, 2], 'color': "#ffebee"}, {'range': [2, 12], 'color': "#e3f2fd"}]
-            }
-        ))
-        fig_p.update_layout(lay_g)
-        st.plotly_chart(fig_p, use_container_width=True)
+    # Gauge Temperatura
+    fig_t = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['mancal'], title={'text': "Temp. Mancal"},
+        gauge={'axis':{'range':[0,100]}, 'bar':{'color':"red"}}))
+    col_g3.plotly_chart(fig_t, use_container_width=True)
 
-    with col_g3:
-        fig_t = go.Figure(go.Indicator(
-            mode = "gauge+number", value = dados_atual['mancal'],
-            title = {'text': "Temp. Mancal (°C)", 'font': {'color': "#004a8d", 'size': 18}},
-            gauge = {
-                'axis': {'range': [0, 100]}, 'bar': {'color': "#ff4b4b"},
-                'steps': [{'range': [0, lim['temp_mancal']], 'color': "#e3f2fd"},
-                          {'range': [lim['temp_mancal'], 100], 'color': "#ffebee"}]
-            }
-        ))
-        fig_t.update_layout(lay_g)
-        st.plotly_chart(fig_t, use_container_width=True)
-
+# --- 8. GRÁFICOS (BUSCA HISTÓRICO REAL DO BANCO) ---
 elif aba == "Gráficos":
-    st.markdown(f"## 📈 Tendências - {dados_atual['nome']}")
-    if not dados_atual['historico']:
-        st.info("⏳ Aguardando recebimento de telemetria para gerar gráficos...")
-    else:
-        df_hist = pd.DataFrame(dados_atual['historico'])
+    st.markdown(f"## 📈 Tendências Históricas - {dados_atual['nome']}")
+    res_hist = supabase.table("historico_bombas").select("*").eq("id_bomba", id_sel).order("data_hora", desc=True).limit(100).execute()
+    
+    if res_hist.data:
+        df = pd.DataFrame(res_hist.data)
+        df['data_hora'] = pd.to_datetime(df['data_hora'])
         
-        # Gráfico 1: Vibração
-        st.markdown("### 📳 Análise de Vibração")
-        fig_xyz = px.line(df_hist, x="Hora", y=["Vib_X", "Vib_Y", "Vib_Z"], 
-                          title="Deslocamento dos Eixos (g)",
-                          color_discrete_map={"Vib_X": "blue", "Vib_Y": "green", "Vib_Z": "red"})
-        fig_xyz.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig_xyz, use_container_width=True)
-
-        st.divider()
-        c_g1, c_g2 = st.columns(2)
-        
-        # Gráfico 2: Temperaturas
-        with c_g1:
-            st.markdown("### 🌡️ Monitoramento Térmico")
-            fig_temp = px.line(df_hist, x="Hora", y=["Temp_Mancal", "Temp_Oleo"], 
-                               title="Evolução Térmica (°C)", markers=True,
-                               color_discrete_map={"Temp_Mancal": "#ff4b4b", "Temp_Oleo": "#ffa500"})
-            fig_temp.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', hovermode="x unified")
-            st.plotly_chart(fig_temp, use_container_width=True)
-
-        # Gráfico 3: Pressão
-        with c_g2:
-            st.markdown("### 💧 Pressão de Saída")
-            fig_pres = px.area(df_hist, x="Hora", y="Pressao_MCA", 
-                               title="Pressão (MCA)", color_discrete_sequence=["#0097d7"])
-            fig_pres.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            fig_pres.update_yaxes(rangemode="tozero") 
-            st.plotly_chart(fig_pres, use_container_width=True)
-
-elif aba == "Alertas":
-    st.markdown("### 🔔 Central de Alertas")
-    alt = [a for a in dados_atual['alertas'] if not a['Reconhecido']]
-    if not alt: st.success("Sistema operando sem pendências.")
+        st.plotly_chart(px.line(df, x="data_hora", y="rms", title="Vibração RMS (mm/s²)"), use_container_width=True)
+        st.plotly_chart(px.line(df, x="data_hora", y=["mancal", "oleo"], title="Temperaturas (°C)"), use_container_width=True)
+        st.plotly_chart(px.area(df, x="data_hora", y="pressao_bar", title="Pressão (Bar)"), use_container_width=True)
     else:
-        for i, a in enumerate(alt):
-            with st.container(border=True):
-                c_st, c_tx, c_btn = st.columns([0.15, 0.65, 0.2])
-                c_st.error(a['Status'])
-                c_tx.write(f"**{a['Sensor']}**: {a['Mensagem']} em {a['Hora']}")
-                if c_btn.button("✔ Reconhecer", key=f"ack_{i}"):
-                    a['Reconhecido'] = True
-                    st.rerun()
+        st.info("Aguardando telemetria inicial...")
 
+# --- ABA DE CONFIGURAÇÕES (MANTIDA) ---
 elif aba == "Configurações":
-    st.markdown("## ⚙️ Configurações do Sistema")
-    if not st.session_state.autenticado:
-        col_log = st.columns([1, 2, 1])
-        with col_log[1]:
-            senha = st.text_input("Senha Admin:", type="password")
-            if st.button("Liberar Acesso"):
-                if senha == "admin123":
-                    st.session_state.autenticado = True
-                    st.rerun()
-                else: st.error("Acesso Negado")
-    else:
-        if st.button("Encerrar Sessão 🔓"):
-            st.session_state.autenticado = False
-            st.rerun()
-        st.divider()
-        st.subheader("🔧 Ajuste de Limites Críticos")
-        with st.form("limites_operacionais"):
-            atuais = st.session_state.limites
-            c_l1, c_l2 = st.columns(2)
-            n_mancal = c_l1.number_input("Temp. Mancal Máx (°C)", value=float(atuais['temp_mancal']))
-            n_rms = c_l2.number_input("Vibração RMS Máx (mm/s²)", value=float(atuais['vib_rms']), format="%.3f")
-            c_l3, c_l4 = st.columns(2)
-            n_p_max = c_l3.number_input("Pressão Máxima (Bar)", value=float(atuais['pressao_max_bar']))
-            n_p_min = c_l4.number_input("Pressão Mínima (Bar)", value=float(atuais['pressao_min_bar']))
-            if st.form_submit_button("💾 Salvar Configurações"):
-                atuais.update({'temp_mancal': n_mancal, 'vib_rms': n_rms, 'pressao_max_bar': n_p_max, 'pressao_min_bar': n_p_min})
-                salvar_configuracoes_arquivo(atuais)
-                st.success("Limites atualizados!")
-
-        st.divider()
-        st.subheader("📊 Exportação de Dados")
-        if dados_atual['historico']:
-            df_exp = pd.DataFrame(dados_atual['historico'])
-            towrite = io.BytesIO()
-            df_exp.to_excel(towrite, index=False, engine='openpyxl')
-            st.download_button(label="📥 Baixar Histórico em Excel", data=towrite.getvalue(), file_name=f"relatorio_{id_sel}.xlsx", mime="application/vnd.ms-excel")
+    st.markdown("## ⚙️ Ajuste de Limites")
+    with st.form("config"):
+        lim = st.session_state.limites
+        n_v = st.number_input("Vibração Máxima (mm/s²)", value=float(lim['vib_rms']))
+        n_m = st.number_input("Temp Mancal Máxima (°C)", value=float(lim['temp_mancal']))
+        if st.form_submit_button("Salvar"):
+            st.session_state.limites.update({'vib_rms': n_v, 'temp_mancal': n_m})
+            st.success("Configurações salvas!")
