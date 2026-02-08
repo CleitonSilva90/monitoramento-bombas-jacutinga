@@ -5,14 +5,13 @@ import plotly.graph_objects as go
 import time
 import math
 import os
-import io
+import json
 from datetime import datetime
 from supabase import create_client
 from streamlit_option_menu import option_menu
 from streamlit_autorefresh import st_autorefresh
 
 # --- 1. CONFIGURAÇÃO SUPABASE ---
-# SUBSTITUA PELAS SUAS CHAVES DO PAINEL API DO SUPABASE
 URL_SUPABASE = "https://iemojjmgzyrxddochnlq.supabase.co"
 KEY_SUPABASE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllbW9qam1nenlyeGRkb2NobmxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MzU2NTYsImV4cCI6MjA4NjExMTY1Nn0.Adeu9DBblWBUQfwlJS9XrcKWixNRqRizFEZ0TOkx7eY"
 supabase = create_client(URL_SUPABASE, KEY_SUPABASE)
@@ -20,27 +19,21 @@ supabase = create_client(URL_SUPABASE, KEY_SUPABASE)
 # --- 2. CONFIGURAÇÃO INICIAL STREAMLIT ---
 st.set_page_config(page_title="Monitor de Ativos Jacutinga", layout="wide")
 
-# --- 3. MEMÓRIA E PERSISTÊNCIA ---
-ARQUIVO_CONFIG = 'config_bombas.json'
+# --- 3. MEMÓRIA E CONFIGURAÇÕES ---
+def carregar_limites():
+    if 'limites' not in st.session_state:
+        st.session_state.limites = {
+            'temp_mancal': 70.0, 
+            'temp_oleo': 65.0, 
+            'vib_rms': 2.8,
+            'pressao_max': 10.0
+        }
 
-def carregar_configuracoes():
-    padrao = {
-        'temp_mancal': 70.0, 'temp_oleo': 65.0, 'vib_rms': 2.8,
-        'pressao_max_bar': 10.0, 'pressao_min_bar': 2.0
-    }
-    if os.path.exists(ARQUIVO_CONFIG):
-        try:
-            with open(ARQUIVO_CONFIG, 'r') as f:
-                return json.load(f)
-        except: return padrao
-    return padrao
+carregar_limites()
 
 @st.cache_resource
 def obter_memoria_global():
-    base = {
-        "mancal": 0.0, "oleo": 0.0, "vx": 0.0, "vy": 0.0, "vz": 0.0, "rms": 0.0, 
-        "pressao_bar": 0.0, "alertas": [], "online": False
-    }
+    base = {"mancal": 0.0, "oleo": 0.0, "rms": 0.0, "pressao_bar": 0.0, "online": False}
     return {
         "jacutinga_b01": {**base, "nome": "Bomba 01", "local": "Jacutinga"},
         "jacutinga_b02": {**base, "nome": "Bomba 02", "local": "Jacutinga"},
@@ -49,15 +42,8 @@ def obter_memoria_global():
 
 memoria = obter_memoria_global()
 
-if 'limites' not in st.session_state:
-    st.session_state.limites = carregar_configuracoes()
-
-if 'autenticado' not in st.session_state:
-    st.session_state.autenticado = False
-
 # --- 4. PROCESSADOR DE API (RECEBIMENTO DO ESP32) ---
 query_params = st.query_params
-
 if "id" in query_params:
     try:
         id_b = query_params.get("id")
@@ -73,23 +59,20 @@ if "id" in query_params:
         p_bar = safe_f(query_params.get('pressao', 0))
         v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
 
-        # Gravação no Banco (Upsert para status atual)
+        # Atualiza Status Atual no Banco (Upsert)
         supabase.table("telemetria_atual").upsert({
-            "id_bomba": id_b,
-            "mancal": mancal, "oleo": oleo,
+            "id_bomba": id_b, "mancal": mancal, "oleo": oleo,
             "vx": vx, "vy": vy, "vz": vz, "rms": v_rms,
-            "pressao_bar": p_bar,
-            "ultima_atualizacao": "now()"
+            "pressao_bar": p_bar, "ultima_atualizacao": "now()"
         }).execute()
 
-        # Gravação no Histórico (Para gráficos)
+        # Insere no Histórico no Banco (Insert)
         supabase.table("historico_bombas").insert({
-            "id_bomba": id_b,
-            "mancal": mancal, "oleo": oleo,
+            "id_bomba": id_b, "mancal": mancal, "oleo": oleo,
             "rms": v_rms, "pressao_bar": p_bar
         }).execute()
 
-        st.write("✅ OK")
+        st.write("✅ OK - Banco Atualizado")
         st.stop()
     except Exception as e:
         st.write(f"❌ Erro: {e}")
@@ -99,13 +82,11 @@ if "id" in query_params:
 def sincronizar_dados():
     try:
         res = supabase.table("telemetria_atual").select("*").execute()
-        agora = datetime.now()
         for item in res.data:
             id_b = item['id_bomba']
             if id_b in memoria:
                 memoria[id_b].update({
                     "mancal": item['mancal'], "oleo": item['oleo'],
-                    "vx": item['vx'], "vy": item['vy'], "vz": item['vz'],
                     "rms": item['rms'], "pressao_bar": item['pressao_bar'],
                     "online": True
                 })
@@ -116,64 +97,81 @@ sincronizar_dados()
 
 # --- 6. INTERFACE SIDEBAR ---
 with st.sidebar:
-    st.markdown("<div style='text-align: center;'><img src='https://cdn-icons-png.flaticon.com/512/3105/3105807.png' width='80'></div>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>⚙️ Monitor Ativos</h2>", unsafe_allow_html=True)
     st.divider()
-    id_sel = st.selectbox("📍 Selecionar Ativo:", list(memoria.keys()), format_func=lambda x: f"{memoria[x]['nome']} - {memoria[x]['local']}")
+    id_sel = st.selectbox("📍 Selecionar Ativo:", list(memoria.keys()), 
+                          format_func=lambda x: f"{memoria[x]['nome']}")
     
-    aba = option_menu(None, ["Dashboard", "Gráficos", "Alertas", "Configurações"], 
-        icons=["speedometer2", "graph-up", "bell-fill", "gear-fill"], default_index=0,
+    aba = option_menu(None, ["Dashboard", "Gráficos", "Configurações"], 
+        icons=["speedometer2", "graph-up", "gear"], 
+        default_index=0,
         styles={"nav-link-selected": {"background-color": "#004a8d"}})
 
 dados_atual = memoria[id_sel]
 
 # --- 7. DASHBOARD ---
 if aba == "Dashboard":
-    st.markdown(f"## 🚀 {dados_atual['nome']} - {dados_atual['local']}")
+    st.markdown(f"## 🚀 {dados_atual['nome']} - Status Real-Time")
     st.divider()
+    
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("🌡️ Temp. Mancal", f"{dados_atual['mancal']:.1f} °C")
     c2.metric("🌡️ Temp. Óleo", f"{dados_atual['oleo']:.1f} °C")
     c3.metric("📳 Vibração RMS", f"{dados_atual['rms']:.3f} mm/s²")
-    c4.metric("💧 Pressão Saída", f"{dados_atual['pressao_bar'] * 10.197:.1f} MCA")
+    c4.metric("💧 Pressão", f"{dados_atual['pressao_bar']:.1f} Bar")
 
     col_g1, col_g2, col_g3 = st.columns(3)
-    # Gauge Vibração
-    fig_v = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['rms'], title={'text': "Vibração RMS"},
-        gauge={'axis':{'range':[0,5]}, 'bar':{'color':"orange"}, 'threshold':{'line':{'color':"red",'width':4},'value':st.session_state.limites['vib_rms']}}))
-    col_g1.plotly_chart(fig_v, use_container_width=True)
+    
+    # Gauge Vibração - Ajustado width='stretch' para evitar avisos
+    fig_v = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['rms'], title={'text': "Vibração (mm/s²)"},
+        gauge={'axis':{'range':[0,5]}, 'bar':{'color':"orange"}, 
+               'threshold':{'line':{'color':"red",'width':4},'value':st.session_state.limites['vib_rms']}}))
+    col_g1.plotly_chart(fig_v, width='stretch')
 
     # Gauge Pressão
     fig_p = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['pressao_bar'], title={'text': "Pressão (Bar)"},
         gauge={'axis':{'range':[0,12]}, 'bar':{'color':"#0097d7"}}))
-    col_g2.plotly_chart(fig_p, use_container_width=True)
+    col_g2.plotly_chart(fig_p, width='stretch')
 
     # Gauge Temperatura
-    fig_t = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['mancal'], title={'text': "Temp. Mancal"},
-        gauge={'axis':{'range':[0,100]}, 'bar':{'color':"red"}}))
-    col_g3.plotly_chart(fig_t, use_container_width=True)
+    fig_t = go.Figure(go.Indicator(mode="gauge+number", value=dados_atual['mancal'], title={'text': "Temp. Mancal (°C)"},
+        gauge={'axis':{'range':[0,100]}, 'bar':{'color':"red"},
+               'threshold':{'line':{'color':"black",'width':4},'value':st.session_state.limites['temp_mancal']}}))
+    col_g3.plotly_chart(fig_t, width='stretch')
 
-# --- 8. GRÁFICOS (BUSCA HISTÓRICO REAL DO BANCO) ---
+# --- 8. GRÁFICOS (HISTÓRICO REAL DO BANCO) ---
 elif aba == "Gráficos":
-    st.markdown(f"## 📈 Tendências Históricas - {dados_atual['nome']}")
-    res_hist = supabase.table("historico_bombas").select("*").eq("id_bomba", id_sel).order("data_hora", desc=True).limit(100).execute()
+    st.markdown(f"## 📈 Histórico de Dados - {dados_atual['nome']}")
+    # Busca os últimos 50 registros do banco para os gráficos
+    res_hist = supabase.table("historico_bombas").select("*").eq("id_bomba", id_sel).order("data_hora", desc=True).limit(50).execute()
     
     if res_hist.data:
         df = pd.DataFrame(res_hist.data)
         df['data_hora'] = pd.to_datetime(df['data_hora'])
         
-        st.plotly_chart(px.line(df, x="data_hora", y="rms", title="Vibração RMS (mm/s²)"), use_container_width=True)
-        st.plotly_chart(px.line(df, x="data_hora", y=["mancal", "oleo"], title="Temperaturas (°C)"), use_container_width=True)
-        st.plotly_chart(px.area(df, x="data_hora", y="pressao_bar", title="Pressão (Bar)"), use_container_width=True)
+        st.subheader("Vibração RMS ao longo do tempo")
+        st.line_chart(df.set_index('data_hora')['rms'], width='stretch')
+        
+        st.subheader("Temperaturas (Mancal e Óleo)")
+        st.line_chart(df.set_index('data_hora')[['mancal', 'oleo']], width='stretch')
+        
+        st.subheader("Pressão (Bar)")
+        st.area_chart(df.set_index('data_hora')['pressao_bar'], width='stretch')
     else:
-        st.info("Aguardando telemetria inicial...")
+        st.info("Nenhum dado histórico encontrado no banco para este ativo.")
 
-# --- ABA DE CONFIGURAÇÕES (MANTIDA) ---
+# --- 9. CONFIGURAÇÕES ---
 elif aba == "Configurações":
-    st.markdown("## ⚙️ Ajuste de Limites")
-    with st.form("config"):
-        lim = st.session_state.limites
-        n_v = st.number_input("Vibração Máxima (mm/s²)", value=float(lim['vib_rms']))
-        n_m = st.number_input("Temp Mancal Máxima (°C)", value=float(lim['temp_mancal']))
-        if st.form_submit_button("Salvar"):
-            st.session_state.limites.update({'vib_rms': n_v, 'temp_mancal': n_m})
-            st.success("Configurações salvas!")
+    st.markdown("## ⚙️ Configuração de Limites de Alerta")
+    with st.form("form_limites"):
+        v_max = st.number_input("Limite Vibração RMS (mm/s²)", value=st.session_state.limites['vib_rms'])
+        t_max = st.number_input("Limite Temp. Mancal (°C)", value=st.session_state.limites['temp_mancal'])
+        o_max = st.number_input("Limite Temp. Óleo (°C)", value=st.session_state.limites['temp_oleo'])
+        
+        if st.form_submit_button("Salvar Configurações"):
+            st.session_state.limites.update({
+                'vib_rms': v_max,
+                'temp_mancal': t_max,
+                'temp_oleo': o_max
+            })
+            st.success("Limites atualizados com sucesso!")
