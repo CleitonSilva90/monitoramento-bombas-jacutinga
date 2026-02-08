@@ -59,10 +59,9 @@ if 'autenticado' not in st.session_state:
 # --- 3. PROCESSADOR DE DADOS UNIFICADO ---
 def processar_dados_recebidos(params):
     try:
-        # Converte listas do Streamlit em valores únicos
         dados = {k: (v[0] if isinstance(v, list) else v) for k, v in params.items()}
-        
         id_b = dados.get('id', 'jacutinga_b01')
+        
         if id_b in memoria:
             def safe_f(v):
                 try: return float(v)
@@ -76,6 +75,7 @@ def processar_dados_recebidos(params):
             p_bar = safe_f(dados.get('pressao', 0))
             v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
 
+            # Atualiza objeto em memória
             memoria[id_b].update({
                 'vx': vx, 'vy': vy, 'vz': vz, 'rms': v_rms, 
                 'mancal': mancal, 'oleo': oleo, 'pressao_bar': p_bar,
@@ -93,14 +93,16 @@ def processar_dados_recebidos(params):
             memoria[id_b]['historico'].append(ponto)
             if len(memoria[id_b]['historico']) > 1000:
                 memoria[id_b]['historico'].pop(0)
+
+            # SALVAMENTO EM ARQUIVO (SINCRONIZAÇÃO DE PROCESSOS)
+            # Isso garante que o Streamlit veja o dado mesmo que o Flask esteja em outro thread
+            with open(f"sync_{id_b}.json", "w") as f:
+                json.dump(memoria[id_b], f)
+                
             return True
-    except:
+    except Exception as e:
         return False
     return False
-
-# Captura via URL Streamlit
-if st.query_params:
-    processar_dados_recebidos(st.query_params.to_dict())
 
 # Servidor Flask
 app_flask = Flask(__name__)
@@ -118,13 +120,32 @@ if 'thread_ativa' not in st.session_state:
     threading.Thread(target=rodar_flask, daemon=True).start()
     st.session_state['thread_ativa'] = True
 
-# --- 4. LÓGICA DE ALERTAS E CONEXÃO ---
-def atualizar_status_conexao():
+# --- 4. LÓGICA DE SINCRONIZAÇÃO E STATUS ---
+def sincronizar_dados():
+    """Lê os arquivos de sincronização para atualizar a interface do Streamlit"""
     agora = time.time()
-    for id_b in memoria:
+    for id_b in memoria.keys():
+        # 1. Tentar ler do arquivo de sincronização
+        arq = f"sync_{id_b}.json"
+        if os.path.exists(arq):
+            try:
+                with open(arq, "r") as f:
+                    dados_sync = json.load(f)
+                    memoria[id_b].update(dados_sync)
+            except:
+                pass
+        
+        # 2. Atualizar status Online/Offline (60 segundos de timeout)
         visto = memoria[id_b].get('ultimo_visto')
         if visto and (agora - visto > 60):
             memoria[id_b]['online'] = False
+
+# --- 5. CONFIGURAÇÃO DA PÁGINA ---
+st.set_page_config(page_title="Monitor de Ativos", layout="wide")
+st_autorefresh(interval=3000, key="refresh_global")
+
+# Executa sincronização antes de desenhar a tela
+scon_temp = sincronizar_dados()
 
 def verificar_alertas(id_b):
     dados = memoria[id_b]
@@ -148,11 +169,6 @@ def verificar_alertas(id_b):
                 "Hora": agora_f, "Valor": round(valor, 2), "Status": status, "Reconhecido": False
             })
     return any(not a['Reconhecido'] for a in dados['alertas'])
-
-# --- 5. CONFIGURAÇÃO DA PÁGINA ---
-st.set_page_config(page_title="Monitor de Ativos", layout="wide")
-st_autorefresh(interval=3000, key="refresh_global")
-atualizar_status_conexao()
 
 with st.sidebar:
     st.markdown("<div style='text-align: center;'><img src='https://cdn-icons-png.flaticon.com/512/3105/3105807.png' width='80'></div>", unsafe_allow_html=True)
@@ -245,12 +261,38 @@ if aba == "Dashboard":
 elif aba == "Gráficos":
     st.markdown(f"## 📈 Tendências - {dados_atual['nome']}")
     if not dados_atual['historico']:
-        st.info("Aguardando telemetria...")
+        st.info("⏳ Aguardando recebimento de telemetria para gerar gráficos...")
     else:
         df_hist = pd.DataFrame(dados_atual['historico'])
-        fig_xyz = px.line(df_hist, x="Hora", y=["Vib_X", "Vib_Y", "Vib_Z"], title="Eixos de Vibração")
+        
+        # Gráfico 1: Vibração
+        st.markdown("### 📳 Análise de Vibração")
+        fig_xyz = px.line(df_hist, x="Hora", y=["Vib_X", "Vib_Y", "Vib_Z"], 
+                          title="Deslocamento dos Eixos (g)",
+                          color_discrete_map={"Vib_X": "blue", "Vib_Y": "green", "Vib_Z": "red"})
         fig_xyz.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig_xyz, use_container_width=True)
+
+        st.divider()
+        c_g1, c_g2 = st.columns(2)
+        
+        # Gráfico 2: Temperaturas
+        with c_g1:
+            st.markdown("### 🌡️ Monitoramento Térmico")
+            fig_temp = px.line(df_hist, x="Hora", y=["Temp_Mancal", "Temp_Oleo"], 
+                               title="Evolução Térmica (°C)", markers=True,
+                               color_discrete_map={"Temp_Mancal": "#ff4b4b", "Temp_Oleo": "#ffa500"})
+            fig_temp.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', hovermode="x unified")
+            st.plotly_chart(fig_temp, use_container_width=True)
+
+        # Gráfico 3: Pressão
+        with c_g2:
+            st.markdown("### 💧 Pressão de Saída")
+            fig_pres = px.area(df_hist, x="Hora", y="Pressao_MCA", 
+                               title="Pressão (MCA)", color_discrete_sequence=["#0097d7"])
+            fig_pres.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
+            fig_pres.update_yaxes(rangemode="tozero") 
+            st.plotly_chart(fig_pres, use_container_width=True)
 
 elif aba == "Alertas":
     st.markdown("### 🔔 Central de Alertas")
