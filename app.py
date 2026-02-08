@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from flask import Flask, request
-from flask_cors import CORS
 import threading
 import time
 import math
@@ -13,6 +11,7 @@ from datetime import datetime
 from streamlit_option_menu import option_menu
 from streamlit_autorefresh import st_autorefresh
 import io
+from urllib.parse import parse_qs
 
 # --- 1. FUNÇÕES DE PERSISTÊNCIA ---
 ARQUIVO_CONFIG = 'config_bombas.json'
@@ -94,59 +93,62 @@ def processar_dados_recebidos(params):
             if len(memoria[id_b]['historico']) > 1000:
                 memoria[id_b]['historico'].pop(0)
 
-            # SALVAMENTO EM ARQUIVO (SINCRONIZAÇÃO DE PROCESSOS)
+            # SALVAMENTO EM ARQUIVO (SINCRONIZAÇÃO)
             try:
                 with open(f"sync_{id_b}.json", "w") as f:
                     json.dump({
                         'vx': vx, 'vy': vy, 'vz': vz, 'rms': v_rms,
                         'mancal': mancal, 'oleo': oleo, 'pressao_bar': p_bar,
                         'ultimo_visto': time.time(), 'online': True,
-                        'historico': memoria[id_b]['historico'][-100:],  # Últimos 100 pontos
+                        'historico': memoria[id_b]['historico'][-100:],
                         'alertas': memoria[id_b]['alertas']
                     }, f)
+                print(f"✅ Dados recebidos: {id_b} - Temp:{mancal}°C Press:{p_bar}Bar")
             except Exception as e:
-                print(f"Erro ao salvar sync: {e}")
+                print(f"❌ Erro ao salvar sync: {e}")
                 
             return True
     except Exception as e:
-        print(f"Erro ao processar dados: {e}")
+        print(f"❌ Erro ao processar dados: {e}")
         return False
     return False
 
-# --- 4. SERVIDOR FLASK ---
-app_flask = Flask(__name__)
-CORS(app_flask)
-
-@app_flask.route('/update', methods=['GET'])
-def update():
-    """Rota correta para receber dados do ESP32"""
+# --- 4. CAPTURA DE QUERY PARAMS (SUBSTITUI O FLASK) ---
+def capturar_dados_url():
+    """Captura dados enviados via URL query params"""
     try:
-        params = request.args.to_dict()
-        print(f"[FLASK] Recebido: {params}")  # Log para debug
+        # Pega os parâmetros da URL
+        query_params = st.query_params
         
-        if processar_dados_recebidos(params):
-            return "OK", 200
-        return "Erro no processamento", 400
+        # Se tem parâmetros, processa
+        if query_params:
+            params_dict = dict(query_params)
+            
+            # Verifica se é uma requisição /update ou /status
+            if 'id' in params_dict:  # É envio de dados
+                print(f"📥 Recebendo dados via URL: {params_dict}")
+                if processar_dados_recebidos(params_dict):
+                    # Limpa os query params para não reprocessar
+                    st.query_params.clear()
+                    return "OK"
+            elif 'status' in params_dict:  # Health check
+                return {"status": "online", "timestamp": time.time()}
+                
     except Exception as e:
-        print(f"[FLASK] Erro: {e}")
-        return f"Erro: {str(e)}", 500
+        print(f"❌ Erro ao capturar URL: {e}")
+    return None
 
-@app_flask.route('/status', methods=['GET'])
-def status():
-    """Rota de health check"""
-    return {"status": "online", "timestamp": time.time()}, 200
+# Captura dados da URL no início
+resposta_api = capturar_dados_url()
 
-# Inicia Flask em thread separada (apenas uma vez)
-if 'thread_ativa' not in st.session_state:
-    def rodar_flask():
-        try: 
-            print("[FLASK] Iniciando servidor na porta 8080...")
-            app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
-        except Exception as e:
-            print(f"[FLASK] Erro ao iniciar: {e}")
-    threading.Thread(target=rodar_flask, daemon=True).start()
-    st.session_state['thread_ativa'] = True
-    time.sleep(1)  # Aguarda Flask iniciar
+# Se for uma chamada de API, retorna direto sem renderizar
+if resposta_api:
+    if resposta_api == "OK":
+        st.write("OK")
+        st.stop()
+    else:
+        st.json(resposta_api)
+        st.stop()
 
 # --- 5. LÓGICA DE SINCRONIZAÇÃO E STATUS ---
 def sincronizar_dados():
@@ -166,7 +168,6 @@ def sincronizar_dados():
                     
                     # Atualiza histórico se tiver dados novos
                     if 'historico' in dados_sync and len(dados_sync['historico']) > 0:
-                        # Mantém histórico sincronizado
                         memoria[id_b]['historico'] = dados_sync['historico']
                     
                     if 'alertas' in dados_sync:
