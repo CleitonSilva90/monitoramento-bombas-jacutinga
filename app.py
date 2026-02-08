@@ -95,32 +95,60 @@ def processar_dados_recebidos(params):
                 memoria[id_b]['historico'].pop(0)
 
             # SALVAMENTO EM ARQUIVO (SINCRONIZAÇÃO DE PROCESSOS)
-            # Isso garante que o Streamlit veja o dado mesmo que o Flask esteja em outro thread
-            with open(f"sync_{id_b}.json", "w") as f:
-                json.dump(memoria[id_b], f)
+            try:
+                with open(f"sync_{id_b}.json", "w") as f:
+                    json.dump({
+                        'vx': vx, 'vy': vy, 'vz': vz, 'rms': v_rms,
+                        'mancal': mancal, 'oleo': oleo, 'pressao_bar': p_bar,
+                        'ultimo_visto': time.time(), 'online': True,
+                        'historico': memoria[id_b]['historico'][-100:],  # Últimos 100 pontos
+                        'alertas': memoria[id_b]['alertas']
+                    }, f)
+            except Exception as e:
+                print(f"Erro ao salvar sync: {e}")
                 
             return True
     except Exception as e:
+        print(f"Erro ao processar dados: {e}")
         return False
     return False
 
-# Servidor Flask
+# --- 4. SERVIDOR FLASK ---
 app_flask = Flask(__name__)
 CORS(app_flask)
+
 @app_flask.route('/update', methods=['GET'])
 def update():
-    if processar_dados_recebidos(request.args.to_dict()):
-        return "OK", 200
-    return "Erro", 400
+    """Rota correta para receber dados do ESP32"""
+    try:
+        params = request.args.to_dict()
+        print(f"[FLASK] Recebido: {params}")  # Log para debug
+        
+        if processar_dados_recebidos(params):
+            return "OK", 200
+        return "Erro no processamento", 400
+    except Exception as e:
+        print(f"[FLASK] Erro: {e}")
+        return f"Erro: {str(e)}", 500
 
+@app_flask.route('/status', methods=['GET'])
+def status():
+    """Rota de health check"""
+    return {"status": "online", "timestamp": time.time()}, 200
+
+# Inicia Flask em thread separada (apenas uma vez)
 if 'thread_ativa' not in st.session_state:
     def rodar_flask():
-        try: app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
-        except: pass
+        try: 
+            print("[FLASK] Iniciando servidor na porta 8080...")
+            app_flask.run(host='0.0.0.0', port=8080, debug=False, use_reloader=False)
+        except Exception as e:
+            print(f"[FLASK] Erro ao iniciar: {e}")
     threading.Thread(target=rodar_flask, daemon=True).start()
     st.session_state['thread_ativa'] = True
+    time.sleep(1)  # Aguarda Flask iniciar
 
-# --- 4. LÓGICA DE SINCRONIZAÇÃO E STATUS ---
+# --- 5. LÓGICA DE SINCRONIZAÇÃO E STATUS ---
 def sincronizar_dados():
     """Lê os arquivos de sincronização para atualizar a interface do Streamlit"""
     agora = time.time()
@@ -131,21 +159,32 @@ def sincronizar_dados():
             try:
                 with open(arq, "r") as f:
                     dados_sync = json.load(f)
-                    memoria[id_b].update(dados_sync)
-            except:
-                pass
+                    # Atualiza apenas campos relevantes
+                    for key in ['vx', 'vy', 'vz', 'rms', 'mancal', 'oleo', 'pressao_bar', 'ultimo_visto', 'online']:
+                        if key in dados_sync:
+                            memoria[id_b][key] = dados_sync[key]
+                    
+                    # Atualiza histórico se tiver dados novos
+                    if 'historico' in dados_sync and len(dados_sync['historico']) > 0:
+                        # Mantém histórico sincronizado
+                        memoria[id_b]['historico'] = dados_sync['historico']
+                    
+                    if 'alertas' in dados_sync:
+                        memoria[id_b]['alertas'] = dados_sync['alertas']
+            except Exception as e:
+                print(f"Erro ao sincronizar {id_b}: {e}")
         
         # 2. Atualizar status Online/Offline (60 segundos de timeout)
         visto = memoria[id_b].get('ultimo_visto')
         if visto and (agora - visto > 60):
             memoria[id_b]['online'] = False
 
-# --- 5. CONFIGURAÇÃO DA PÁGINA ---
+# --- 6. CONFIGURAÇÃO DA PÁGINA ---
 st.set_page_config(page_title="Monitor de Ativos", layout="wide")
 st_autorefresh(interval=3000, key="refresh_global")
 
 # Executa sincronização antes de desenhar a tela
-scon_temp = sincronizar_dados()
+sincronizar_dados()
 
 def verificar_alertas(id_b):
     dados = memoria[id_b]
@@ -170,6 +209,7 @@ def verificar_alertas(id_b):
             })
     return any(not a['Reconhecido'] for a in dados['alertas'])
 
+# --- 7. INTERFACE STREAMLIT ---
 with st.sidebar:
     st.markdown("<div style='text-align: center;'><img src='https://cdn-icons-png.flaticon.com/512/3105/3105807.png' width='80'></div>", unsafe_allow_html=True)
     st.divider()
@@ -179,7 +219,12 @@ with st.sidebar:
     st.markdown("### 🌐 Status de Conexão")
     for id_b, d in memoria.items():
         cor_led = "🟢" if d['online'] else "🔴"
-        st.write(f"{cor_led} **{d['nome']}**")
+        ultimo = d.get('ultimo_visto')
+        if ultimo:
+            tempo_desde = int(time.time() - ultimo)
+            st.write(f"{cor_led} **{d['nome']}** ({tempo_desde}s)")
+        else:
+            st.write(f"{cor_led} **{d['nome']}** (sem dados)")
 
     st.divider()
     aba = option_menu(
@@ -194,7 +239,7 @@ with st.sidebar:
 tem_alerta = verificar_alertas(id_sel)
 dados_atual = memoria[id_sel]
 
-# --- 6. RENDERIZAÇÃO ---
+# --- 8. RENDERIZAÇÃO ---
 if aba == "Dashboard":
     col_tit, col_sts = st.columns([0.7, 0.3])
     with col_tit:
