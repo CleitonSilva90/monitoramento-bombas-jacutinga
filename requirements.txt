@@ -1,8 +1,8 @@
 streamlit
 pandas
 plotly
-flask
-flask-cors
 streamlit-option-menu
 streamlit-autorefresh
 openpyxl
+supabase
+postgrest
