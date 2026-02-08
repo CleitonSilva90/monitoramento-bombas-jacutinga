@@ -42,37 +42,54 @@ if 'limites' not in st.session_state:
 if 'autenticado' not in st.session_state:
     st.session_state.autenticado = False
 
-# --- 3. PROCESSADOR DE API (VERSÃO ATUALIZADA PARA O RENDER) ---
-# Substituímos st.experimental_get_query_params() por st.query_params
-params = st.query_params.to_dict()
+# --- 3. PROCESSADOR DE API (CORRETO PARA RENDER + ESP32) ---
+params = st.experimental_get_query_params()
 
 if 'id' in params:
     try:
-        id_b = params['id']
-        def safe_f(key):
-            return float(params.get(key, 0))
+        id_b = params['id'][0]
 
-        vx, vy, vz = safe_f('vx'), safe_f('vy'), safe_f('vz')
-        mancal, oleo, p_bar = safe_f('mancal'), safe_f('oleo'), safe_f('pressao')
+        def safe_f(key):
+            return float(params.get(key, ['0'])[0])
+
+        vx = safe_f('vx')
+        vy = safe_f('vy')
+        vz = safe_f('vz')
+        mancal = safe_f('mancal')
+        oleo = safe_f('oleo')
+        p_bar = safe_f('pressao')
+
         v_rms = math.sqrt((vx**2 + vy**2 + vz**2) / 3)
 
-        # Grava no Supabase
+        # --- TELEMETRIA ATUAL ---
         supabase.table("telemetria_atual").upsert({
-            "id_bomba": id_b, "mancal": mancal, "oleo": oleo,
-            "vx": vx, "vy": vy, "vz": vz, "rms": v_rms,
-            "pressao_bar": p_bar, "ultima_atualizacao": datetime.utcnow().isoformat()
+            "id_bomba": id_b,
+            "mancal": mancal,
+            "oleo": oleo,
+            "vx": vx,
+            "vy": vy,
+            "vz": vz,
+            "rms": v_rms,
+            "pressao_bar": p_bar,
+            "ultima_atualizacao": "now()"
         }).execute()
 
+        # --- HISTÓRICO ---
         supabase.table("historico_bombas").insert({
-            "id_bomba": id_b, "mancal": mancal, "oleo": oleo,
-            "rms": v_rms, "pressao_bar": p_bar
+            "id_bomba": id_b,
+            "mancal": mancal,
+            "oleo": oleo,
+            "rms": v_rms,
+            "pressao_bar": p_bar
         }).execute()
 
         st.write("OK")
         st.stop()
+
     except Exception as e:
         st.write(f"Erro API: {e}")
         st.stop()
+
 
 # --- 4. SINCRONIZAÇÃO E UI ---
 def sincronizar_dados():
@@ -186,3 +203,4 @@ elif aba == "Configurações":
             if st.form_submit_button("💾 Salvar"):
                 l.update({'temp_mancal': n_mancal, 'temp_oleo': n_oleo, 'vib_rms': n_rms, 'pressao_max_bar': n_p_max, 'pressao_min_bar': n_p_min})
                 st.success("Salvo!")
+
