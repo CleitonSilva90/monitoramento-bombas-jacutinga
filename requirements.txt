@@ -1,8 +1,4 @@
-streamlit
-pandas
-plotly
-streamlit-option-menu
-streamlit-autorefresh
-openpyxl
+fastapi
+uvicorn
 supabase
-postgrest
+python-dotenv
