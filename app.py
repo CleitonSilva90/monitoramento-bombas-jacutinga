@@ -5,13 +5,13 @@ from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
 
 # --- 1. CONFIGURAÇÃO VISUAL MODERNA ---
-st.set_page_config(page_title="PRO-TELEMETRY | Indústria 4.0", layout="wide")
+st.set_page_config(page_title="Concórdia Saneamento GS Inima", layout="wide")
 
 st.markdown("""
     <style>
     /* Fundo do menu lateral */
     [data-testid="stSidebar"] { 
-        background-color: #111827; 
+        background-color: #E0FFFF; 
     }
     
     /* COR SOMENTE DAS LETRAS E ÍCONES NO MENU LATERAL */
@@ -223,4 +223,5 @@ elif menu == "⚙️ CONFIGURAÇÕES":
                 supabase.table("configuracoes").update(novos_dados).eq("id", 1).execute()
                 st.success("Salvo com sucesso!")
                 st.rerun()
+
 
