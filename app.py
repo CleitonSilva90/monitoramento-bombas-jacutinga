@@ -35,9 +35,68 @@ st.markdown("""
     .value-critical { color: #ff4b4b !important; font-weight: 800; }
     
     /* Login Box */
-    .login-container { max-width: 400px; margin: auto; padding: 30px; background: white; border-radius: 15px; border: 2px solid #00BFFF; }
-    </style>
-    """, unsafe_allow_html=True)
+  st.markdown("""
+<style>
+
+/* ===== FUNDO GERAL ===== */
+.stApp {
+    background-color: #F4F8FB;
+}
+
+/* ===== SIDEBAR ===== */
+[data-testid="stSidebar"] { 
+    background-color: #E0FFFF; 
+}
+[data-testid="stSidebar"] * { 
+    color: #00BFFF !important; 
+}
+
+/* ===== LOGIN CONTAINER MODERNO ===== */
+.login-container {
+    max-width: 420px;
+    margin: auto;
+    padding: 40px 35px 35px 35px;
+    background: white;
+    border-radius: 18px;
+    border: 1px solid #D6EAF8;
+    box-shadow: 0px 15px 35px rgba(0,0,0,0.08);
+    text-align: center;
+}
+
+/* ===== TÍTULO LOGIN ===== */
+.login-title {
+    color: #003366;
+    font-weight: 700;
+    margin-bottom: 10px;
+}
+
+/* ===== INPUTS ===== */
+div[data-baseweb="input"] {
+    border-radius: 8px !important;
+}
+
+/* ===== BOTÃO ===== */
+div.stButton > button {
+    background-color: #00BFFF;
+    color: white;
+    font-weight: 600;
+    border-radius: 8px;
+    height: 45px;
+    border: none;
+}
+
+div.stButton > button:hover {
+    background-color: #009ACD;
+    color: white;
+}
+
+hr { 
+    border-color: #00BFFF !important; 
+}
+
+</style>
+""", unsafe_allow_html=True)
+
 
 # Auto-refresh a cada 10 segundos
 st_autorefresh(interval=10000, key="globalrefresh")
@@ -69,22 +128,46 @@ def buscar_reconhecidos():
 
 # --- 4. TELA DE LOGIN ---
 if 'usuario' not in st.session_state:
-    st.write("#")
-    col1, col_login, col3 = st.columns([1, 1.2, 1])
+
+    col1, col_login, col3 = st.columns([1, 1.3, 1])
+
     with col_login:
+
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.title("👤 Login")
+
+        # Logo
+        st.image("logo.png", width=220)
+
+        # Título estilizado
+        st.markdown(
+            '<h2 class="login-title">Acesso ao Sistema</h2>',
+            unsafe_allow_html=True
+        )
+
+        # Campos
         u_input = st.text_input("Usuário")
         p_input = st.text_input("Senha", type="password")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Botão
         if st.button("ACESSAR SISTEMA", use_container_width=True):
-            res = supabase.table("usuarios").select("*").eq("usuario", u_input).eq("senha", p_input).execute()
+            res = supabase.table("usuarios") \
+                .select("*") \
+                .eq("usuario", u_input) \
+                .eq("senha", p_input) \
+                .execute()
+
             if res.data:
                 st.session_state.usuario = res.data[0]
                 st.rerun()
             else:
                 st.error("Credenciais incorretas.")
+
         st.markdown('</div>', unsafe_allow_html=True)
+
     st.stop()
+
 
 # --- 5. PROCESSAMENTO DE ALERTAS ---
 config = buscar_configuracoes()
@@ -209,3 +292,4 @@ elif menu == "🚨 CENTRAL DE ALERTAS":
                     op_nome = rec_check.iloc[-1]['operador']
                     c1.warning(f"⚠️ **{a['bomba'].upper()}**: {a['sensor']} (Reconhecido por {op_nome})")
                     c2.info("Ciente")
+
