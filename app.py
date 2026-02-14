@@ -218,7 +218,9 @@ elif menu == "🚨 CENTRAL DE ALERTAS":
 elif menu == "⚙️ CONFIGURAÇÕES":
     st.title("⚙️ Gestão de Sistema")
     pw = st.text_input("Senha Mestre", type="password")
+    
     if pw == config['senha_acesso']:
+        # --- Bloco de Limites ---
         with st.form("limites"):
             st.subheader("Configurar Limites")
             p = st.number_input("Mín. Pressão", value=float(config['limite_pressao']))
@@ -226,14 +228,37 @@ elif menu == "⚙️ CONFIGURAÇÕES":
             o = st.number_input("Max. Óleo", value=float(config['limite_oleo']))
             r = st.number_input("Max. RMS", value=float(config['limite_rms']))
             if st.form_submit_button("SALVAR LIMITES"):
-                supabase.table("configuracoes").update({"limite_pressao": p, "limite_mancal": m, "limite_oleo": o, "limite_rms": r}).eq("id", 1).execute()
+                supabase.table("configuracoes").update({
+                    "limite_pressao": p, 
+                    "limite_mancal": m, 
+                    "limite_oleo": o, 
+                    "limite_rms": r
+                }).eq("id", 1).execute()
                 st.success("Limites atualizados!")
         
         st.markdown("---")
+        
+        # --- Bloco CORRIGIDO: Cadastro de Usuários ---
         st.subheader("👤 Cadastrar Novo Usuário")
         with st.form("novo_user"):
-            nu = st.text_input("Nome de Usuário")
-            np = st.text_input("Senha", type="password")
+            nome_completo = st.text_input("Nome Completo")
+            usuario_login = st.text_input("Usuário (Login)")
+            senha_login = st.text_input("Senha", type="password")
+            nivel = st.selectbox("Nível de Acesso", ["Leitura", "Operador", "Admin"])
+            
             if st.form_submit_button("CADASTRAR"):
-                supabase.table("usuarios").insert({"usuario": nu, "senha": np}).execute()
-                st.success(f"Usuário {nu} cadastrado!")
+                if nome_completo and usuario_login and senha_login:
+                    try:
+                        data = {
+                            "nome": nome_completo,
+                            "usuario": usuario_login,
+                            "senha": senha_login,
+                            "nivel_acesso": nivel
+                        }
+                        supabase.table("usuarios").insert(data).execute()
+                        st.success(f"Usuário '{usuario_login}' cadastrado com sucesso!")
+                    except Exception as e:
+                        st.error(f"Erro ao cadastrar: {e}")
+                else:
+                    st.warning("Por favor, preencha todos os campos.")
+
