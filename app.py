@@ -12,7 +12,7 @@ st_autorefresh(interval=10000, key="globalrefresh")
 
 # --- 2. CONEXÃO SUPABASE ---
 URL = "https://iemojjmgzyrxddochnlq.supabase.co"
-KEY = "SUA_CHAVE_AQUI" # COLOQUE SUA CHAVE AQUI
+KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllbW9qam1nenlyeGRkb2NobmxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MzU2NTYsImV4cCI6MjA4NjExMTY1Nn0.Adeu9DBblWBUQfwlJS9XrcKWixNRqRizFEZ0TOkx7eY" # COLOQUE SUA CHAVE AQUI
 supabase = create_client(URL, KEY)
 
 # --- 3. FUNÇÕES DE BANCO DE DADOS ---
@@ -119,3 +119,4 @@ elif menu == "Configurar Alarmes":
                 st.rerun()
     elif senha != "":
         st.error("Senha incorreta.")
+
