@@ -9,51 +9,39 @@ st.set_page_config(page_title="Concórdia Saneamento GS Inima", layout="wide")
 
 st.markdown("""
     <style>
-    /* Fundo do menu lateral */
-    [data-testid="stSidebar"] { 
-        background-color: #E0FFFF; 
-    }
-    
-    /* COR SOMENTE DAS LETRAS E ÍCONES NO MENU LATERAL */
-    [data-testid="stSidebar"] * {
-        color: #00BFFF !important; 
-    }
-    
-    /* Estilização para as opções do Radio Button */
-    [data-testid="stWidgetLabel"] p {
-        color: #00BFFF !important;
-        font-size: 1.2rem !important;
-        font-weight: 800 !important;
-        text-shadow: 0px 0px 5px rgba(0, 191, 255, 0.2);
-    }
-    
-    /* Linha divisória em azul */
-    hr {
-        border-color: #00BFFF !important;
+    /* Estilos Gerais e Sidebar */
+    [data-testid="stSidebar"] { background-color: #E0FFFF; }
+    [data-testid="stSidebar"] * { color: #00BFFF !important; }
+    [data-testid="stWidgetLabel"] p { color: #00BFFF !important; font-size: 1.2rem !important; font-weight: 800 !important; text-shadow: 0px 0px 5px rgba(0, 191, 255, 0.2); }
+    hr { border-color: #00BFFF !important; }
+
+    /* Login Box Inspirado na Imagem */
+    .login-box {
+        background-color: #ffffff;
+        padding: 30px;
+        border-radius: 15px;
+        border: 2px solid #00BFFF;
+        box-shadow: 0px 10px 25px rgba(0,0,0,0.1);
+        text-align: center;
+        max-width: 400px;
+        margin: auto;
     }
 
-    /* Estilo para o Banner de Alerta Superior (Inspirado Base44) */
+    /* Cards e Alertas */
     .alert-banner {
         background: linear-gradient(90deg, #ff4b4b 0%, #b91c1c 100%);
         color: white; padding: 15px; border-radius: 10px;
         text-align: center; font-weight: bold; font-size: 1.1rem;
         margin-bottom: 20px; box-shadow: 0 4px 15px rgba(255, 75, 75, 0.3);
     }
-
-    .main { background-color: #f3f4f6; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
-    
     .pump-card {
         background-color: white; padding: 20px; border-radius: 12px;
         border-top: 8px solid #10b981; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
         margin-bottom: 20px;
     }
-    
     .stat-row { display: flex; justify-content: space-between; padding: 5px 0; border-bottom: 1px solid #f3f4f6; }
     .stat-label { color: #6b7280; font-weight: 500; }
     .stat-value { color: #111827; font-weight: 700; }
-    
-    /* Classe para destacar valores em alerta nos cards */
     .value-critical { color: #ff4b4b !important; font-weight: 800; }
     </style>
     """, unsafe_allow_html=True)
@@ -82,44 +70,96 @@ def buscar_historico(ids_selecionados):
     res = supabase.table("historico").select("*").in_("id_bomba", ids_selecionados).order("data_hora", desc=True).limit(500).execute()
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
-config = buscar_configuracoes()
+def buscar_reconhecidos():
+    res = supabase.table("logs_alertas").select("*").eq("status", "Reconhecido").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
-# --- 4. PRÉ-PROCESSAMENTO DE ALERTAS (BANNER E CENTRAL) ---
+def registrar_reconhecimento(bomba, sensor, valor, limite):
+    dados = {
+        "bomba": bomba, "sensor": sensor, "valor_detectado": str(valor),
+        "limite_definido": str(limite), "status": "Reconhecido",
+        "operador": st.session_state.usuario['nome']
+    }
+    supabase.table("logs_alertas").insert(dados).execute()
+
+# --- 4. TELA DE LOGIN ---
+if 'usuario' not in st.session_state:
+    col1, col_login, col3 = st.columns([1, 1.2, 1])
+    with col_login:
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.title("👤 Acesso")
+        u_in = st.text_input("Usuário")
+        p_in = st.text_input("Senha", type="password")
+        if st.button("LOGIN", use_container_width=True):
+            res = supabase.table("usuarios").select("*").eq("usuario", u_in).eq("senha", p_in).execute()
+            if res.data:
+                st.session_state.usuario = res.data[0]
+                st.rerun()
+            else:
+                st.error("Credenciais inválidas.")
+        st.markdown('</div>', unsafe_allow_html=True)
+    st.stop()
+
+# --- 5. PRÉ-PROCESSAMENTO DE ALERTAS ---
+config = buscar_configuracoes()
 df_status = buscar_todos_status()
-alertas_ativos = []
+df_recon = buscar_reconhecidos()
+
+alertas_ativos = []   # Todos que estão fora do limite (Central)
+alertas_criticos = [] # Apenas os NÃO reconhecidos (Banner e Dashboard)
 
 if not df_status.empty:
     for _, row in df_status.iterrows():
         b_id = row['id_bomba'].upper()
-        # Regras de Alerta
-        if row['pressao'] < config['limite_pressao']:
-            alertas_ativos.append({"bomba": b_id, "sensor": "Pressão Saída", "valor": f"{row['pressao']:.2f} bar", "limite": config['limite_pressao'], "tipo": "Mínima"})
-        if row['mancal'] > config['limite_mancal']:
-            alertas_ativos.append({"bomba": b_id, "sensor": "Temp. Mancal", "valor": f"{row['mancal']:.1f} °C", "limite": config['limite_mancal'], "tipo": "Máxima"})
-        if row.get('oleo', 0) > config['limite_oleo']:
-            alertas_ativos.append({"bomba": b_id, "sensor": "Temp. Óleo", "valor": f"{row['oleo']:.1f} °C", "limite": config['limite_oleo'], "tipo": "Máxima"})
-        if row['rms'] > config['limite_rms']:
-            alertas_ativos.append({"bomba": b_id, "sensor": "Vibração RMS", "valor": f"{row['rms']:.2f}", "limite": config['limite_rms'], "tipo": "Máxima"})
+        # Regras
+        checks = [
+            ("Pressão Saída", row['pressao'], config['limite_pressao'], "Mínima", row['pressao'] < config['limite_pressao']),
+            ("Temp. Mancal", row['mancal'], config['limite_mancal'], "Máxima", row['mancal'] > config['limite_mancal']),
+            ("Temp. Óleo", row.get('oleo', 0), config['limite_oleo'], "Máxima", row.get('oleo', 0) > config['limite_oleo']),
+            ("Vibração RMS", row['rms'], config['limite_rms'], "Máxima", row['rms'] > config['limite_rms'])
+        ]
+        for s_nome, s_val, s_lim, s_tipo, em_erro in checks:
+            if em_erro:
+                alerta_data = {"bomba": b_id, "sensor": s_nome, "valor": f"{s_val:.2f}", "limite": s_lim, "tipo": s_tipo}
+                alertas_ativos.append(alerta_data)
+                
+                ja_recon = False
+                if not df_recon.empty:
+                    ja_recon = not df_recon[(df_recon['bomba'] == b_id) & (df_recon['sensor'] == s_nome)].empty
+                if not ja_recon:
+                    alertas_criticos.append(alerta_data)
 
 # Banner Superior
-if alertas_ativos:
-    st.markdown(f'<div class="alert-banner">🚨 SISTEMA EM ALERTA: {len(alertas_ativos)} EVENTO(S) CRÍTICO(S) DETECTADO(S)</div>', unsafe_allow_html=True)
+if alertas_criticos:
+    st.markdown(f'<div class="alert-banner">🚨 SISTEMA EM ALERTA: {len(alertas_criticos)} EVENTO(S) PENDENTE(S)</div>', unsafe_allow_html=True)
 
-# --- 5. SIDEBAR ---
-st.sidebar.title("🎛️ CORE CONTROL")
+# --- 6. SIDEBAR ---
+try:
+    st.sidebar.image("logo.png", use_container_width=True)
+except:
+    st.sidebar.subheader("GS INIMA")
+
+st.sidebar.write(f"👤 {st.session_state.usuario['nome']} ({st.session_state.usuario['nivel_acesso']})")
+if st.sidebar.button("🚪 LOGOFF"):
+    del st.session_state.usuario
+    st.rerun()
+
 st.sidebar.markdown("---")
-menu = st.sidebar.radio("NAVEGAÇÃO", ["🌍 VISÃO GERAL", "📊 ANÁLISE TÉCNICA", "🚨 CENTRAL DE ALERTAS", "⚙️ CONFIGURAÇÕES"])
+opcoes = ["🌍 VISÃO GERAL", "📊 ANÁLISE TÉCNICA", "🚨 CENTRAL DE ALERTAS"]
+if st.session_state.usuario['nivel_acesso'] == 'Admin':
+    opcoes += ["⚙️ CONFIGURAÇÕES", "👥 USUÁRIOS"]
+
+menu = st.sidebar.radio("NAVEGAÇÃO", opcoes)
 
 locais = {
     "JACUTINGA": ["jacutinga_b01", "jacutinga_b02", "jacutinga_b03"],
     "INTERMEDIÁRIA": ["intermediaria_b01", "intermediaria_b02", "intermediaria_b03"]
 }
 
-# --- 6. TELAS ---
+# --- 7. TELAS ---
 
 if menu == "🌍 VISÃO GERAL":
     st.title("🏭 Monitoramento de Ativos")
-    
     for local, lista in locais.items():
         st.subheader(f"📍 {local}")
         cols = st.columns(3)
@@ -128,100 +168,67 @@ if menu == "🌍 VISÃO GERAL":
                 row = df_status[df_status['id_bomba'] == id_b]
                 if not row.empty:
                     val = row.iloc[0]
-                    # Verifica se esta bomba tem alerta ativo
-                    b_tem_alerta = any(a['bomba'] == id_b.upper() for a in alertas_ativos)
-                    cor_borda = "#ef4444" if b_tem_alerta else "#10b981"
+                    tem_pendencia = any(a['bomba'] == id_b.upper() for a in alertas_criticos)
+                    cor_borda = "#ef4444" if tem_pendencia else "#10b981"
                     
-                    # Estilos críticos individuais
-                    cp = "value-critical" if val['pressao'] < config['limite_pressao'] else ""
-                    cm = "value-critical" if val['mancal'] > config['limite_mancal'] else ""
-                    co = "value-critical" if val.get('oleo', 0) > config['limite_oleo'] else ""
-                    cv = "value-critical" if val['rms'] > config['limite_rms'] else ""
-
-                    try:
-                        data_formatada = pd.to_datetime(val['ultima_batida']).strftime('%d/%m %H:%M:%S')
-                    except:
-                        data_formatada = val['ultima_batida']
-
                     st.markdown(f"""
                         <div class="pump-card" style="border-top-color: {cor_borda}">
                             <h3 style="margin:0;">{id_b.upper()}</h3>
-                            <p style="font-size:12px; color:gray;">Sinal: {data_formatada}</p>
-                            <div class="stat-row"><span class="stat-label">⛽ Pressão</span><span class="stat-value {cp}">{val['pressao']:.2f} bar</span></div>
-                            <div class="stat-row"><span class="stat-label">🌡️ Mancal</span><span class="stat-value {cm}">{val['mancal']:.1f} °C</span></div>
-                            <div class="stat-row"><span class="stat-label">🔥 Óleo</span><span class="stat-value {co}">{val.get('oleo', 0):.1f} °C</span></div>
-                            <div class="stat-row"><span class="stat-label">📳 Vibração (RMS)</span><span class="stat-value {cv}">{val['rms']:.2f}</span></div>
+                            <div class="stat-row"><span class="stat-label">⛽ Pressão</span><span class="stat-value">{val['pressao']:.2f} bar</span></div>
+                            <div class="stat-row"><span class="stat-label">🌡️ Mancal</span><span class="stat-value">{val['mancal']:.1f} °C</span></div>
+                            <div class="stat-row"><span class="stat-label">🔥 Óleo</span><span class="stat-value">{val.get('oleo', 0):.1f} °C</span></div>
+                            <div class="stat-row"><span class="stat-label">📳 RMS</span><span class="stat-value">{val['rms']:.2f}</span></div>
                         </div>
                     """, unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div class="pump-card" style="border-top-color:#d1d5db;color:#9ca3af;"><h3>{id_b.upper()}</h3><p>OFF-LINE</p></div>', unsafe_allow_html=True)
 
 elif menu == "🚨 CENTRAL DE ALERTAS":
-    st.title("🔔 Central de Gerenciamento de Alarmes")
-    
-    # KPIs inspirados no design SCADA
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Ativos Monitorados", "6")
-    k2.metric("Alertas Ativos", len(alertas_ativos), delta=len(alertas_ativos), delta_color="inverse")
-    k3.metric("Status do Sistema", "CRÍTICO" if alertas_ativos else "OPERALCIONAL")
-
-    st.markdown("---")
+    st.title("🔔 Central de Alarmes")
     if not alertas_ativos:
         st.success("✅ Nenhum alarme detectado no momento.")
     else:
         for a in alertas_ativos:
+            rec_info = df_recon[(df_recon['bomba'] == a['bomba']) & (df_recon['sensor'] == a['sensor'])] if not df_recon.empty else pd.DataFrame()
             with st.container():
                 c1, c2 = st.columns([4, 1])
-                c1.error(f"**{a['bomba']}** | {a['sensor']} fora do limite: **{a['valor']}** (Limite {a['tipo']}: {a['limite']})")
-                if c2.button("Reconhecer", key=f"btn_{a['bomba']}_{a['sensor']}"):
-                    st.toast(f"Evento em {a['bomba']} reconhecido.")
+                if rec_info.empty:
+                    c1.error(f"**{a['bomba']}** | {a['sensor']} fora do limite: **{a['valor']}**")
+                    if c2.button("Reconhecer", key=f"btn_{a['bomba']}_{a['sensor']}"):
+                        registrar_reconhecimento(a['bomba'], a['sensor'], a['valor'], a['limite'])
+                        st.rerun()
+                else:
+                    c1.warning(f"⚠️ **{a['bomba']}** | {a['sensor']} - Reconhecido por {rec_info.iloc[-1]['operador']}")
+                    c2.info("Ciente")
 
 elif menu == "📊 ANÁLISE TÉCNICA":
     st.title("📈 Gráficos de Tendência")
-    todos_ativos = [b for l in locais.values() for b in l]
-    selecionados = st.multiselect("Bombas para análise:", todos_ativos, default=[todos_ativos[0]])
-    
+    todos = [b for l in locais.values() for b in l]
+    selecionados = st.multiselect("Analisar:", todos, default=[todos[0]])
     if selecionados:
         df_h = buscar_historico(selecionados)
         if not df_h.empty:
             df_h['data_hora'] = pd.to_datetime(df_h['data_hora'])
-            t1, t2, t3 = st.tabs(["📉 Pressão", "🌡️ Temperaturas", "📳 Vibração (Eixos)"])
-            
-            with t1:
-                fig1 = px.line(df_h, x="data_hora", y="pressao", color="id_bomba", template="plotly_white")
-                fig1.update_xaxes(tickformat="%d/%m\n%H:%M", title_text="Hora Local")
-                st.plotly_chart(fig1, width="stretch") 
-            with t2:
-                fig2 = px.line(df_h, x="data_hora", y=["mancal", "oleo"], 
-                                   color_discrete_map={"mancal": "#FF4B4B", "oleo": "#00CCFF"},
-                                   title="Comparativo: Mancal (Vermelho) vs Óleo (Azul)",
-                                   template="plotly_white")
-                fig2.update_xaxes(tickformat="%d/%m\n%H:%M", title_text="Hora Local")
-                st.plotly_chart(fig2, width="stretch") 
-            with t3:
-                eixos = st.multiselect("Eixos:", ["rms", "vx", "vy", "vz"], default=["rms", "vx"])
-                fig3 = px.line(df_h, x="data_hora", y=eixos, color="id_bomba", template="plotly_white")
-                fig3.update_xaxes(tickformat="%d/%m\n%H:%M", title_text="Hora Local")
-                st.plotly_chart(fig3, width="stretch") 
+            st.plotly_chart(px.line(df_h, x="data_hora", y=["pressao", "mancal", "oleo"], color="id_bomba"), use_container_width=True)
 
 elif menu == "⚙️ CONFIGURAÇÕES":
-    st.title("🔐 Configuração de Alarmes")
-    senha_input = st.text_input("Senha de Acesso", type="password")
-    
-    if senha_input == config['senha_acesso']:
-        st.success("Acesso Liberado")
-        with st.form("set_alarms"):
-            c1, c2 = st.columns(2)
-            p_min = c1.number_input("Limite MÍNIMO Pressão (bar)", value=float(config['limite_pressao']))
-            m_max = c1.number_input("Limite MÁXIMO Temp. Mancal (°C)", value=float(config['limite_mancal']))
-            o_max = c2.number_input("Limite MÁXIMO Temp. Óleo (°C)", value=float(config['limite_oleo']))
-            r_max = c2.number_input("Limite MÁXIMO Vibração RMS", value=float(config['limite_rms']))
-            nova_senha = st.text_input("Alterar Senha", value=config['senha_acesso'])
-            
-            if st.form_submit_button("GRAVAR CONFIGURAÇÕES"):
-                novos_dados = {"limite_pressao": p_min, "limite_mancal": m_max, "limite_oleo": o_max, "limite_rms": r_max, "senha_acesso": nova_senha}
-                supabase.table("configuracoes").update(novos_dados).eq("id", 1).execute()
-                st.success("Salvo com sucesso!")
+    st.title("⚙️ Limites de Alarme")
+    with st.form("set_alarms"):
+        p_min = st.number_input("Pressão Mínima", value=float(config['limite_pressao']))
+        m_max = st.number_input("Mancal Máxima", value=float(config['limite_mancal']))
+        o_max = st.number_input("Óleo Máxima", value=float(config['limite_oleo']))
+        r_max = st.number_input("Vibração Máxima", value=float(config['limite_rms']))
+        if st.form_submit_button("SALVAR"):
+            supabase.table("configuracoes").update({"limite_pressao": p_min, "limite_mancal": m_max, "limite_oleo": o_max, "limite_rms": r_max}).eq("id", 1).execute()
+            st.success("Configurações atualizadas!")
+
+elif menu == "👥 USUÁRIOS":
+    st.title("👥 Gestão de Equipe")
+    with st.expander("Cadastrar Novo Usuário"):
+        with st.form("new_user"):
+            n = st.text_input("Nome")
+            u = st.text_input("Username")
+            s = st.text_input("Senha", type="password")
+            niv = st.selectbox("Nível", ["Leitura", "Operador", "Admin"])
+            if st.form_submit_button("CADASTRAR"):
+                supabase.table("usuarios").insert({"nome":n, "usuario":u, "senha":s, "nivel_acesso":niv}).execute()
+                st.success("Usuário criado!")
                 st.rerun()
-
-
