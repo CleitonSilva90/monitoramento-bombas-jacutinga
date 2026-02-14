@@ -7,10 +7,10 @@ import plotly.express as px
 # --- 1. CONFIGURAÇÃO VISUAL MODERNA ---
 st.set_page_config(page_title="PRO-TELEMETRY | Indústria 4.0", layout="wide")
 
-# CSS para Estilo Industrial Profissional
+# CSS Ajustado: Menu lateral com melhor contraste e cards industriais
 st.markdown("""
     <style>
-    [data-testid="stSidebar"] { background-color: #111827; color: white; }
+    [data-testid="stSidebar"] { background-color: #1f2937; color: white; } 
     .main { background-color: #f3f4f6; }
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
     .pump-card {
@@ -27,7 +27,7 @@ st.markdown("""
 # Auto-refresh a cada 10 segundos
 st_autorefresh(interval=10000, key="globalrefresh")
 
-# --- 2. CONEXÃO SUPABASE (Substitua pela sua KEY real) ---
+# --- 2. CONEXÃO SUPABASE ---
 URL = "https://iemojjmgzyrxddochnlq.supabase.co"
 KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllbW9qam1nenlyeGRkb2NobmxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MzU2NTYsImV4cCI6MjA4NjExMTY1Nn0.Adeu9DBblWBUQfwlJS9XrcKWixNRqRizFEZ0TOkx7eY" 
 supabase = create_client(URL, KEY)
@@ -48,13 +48,13 @@ def buscar_historico(ids_selecionados):
     res = supabase.table("historico").select("*").in_("id_bomba", ids_selecionados).order("data_hora", desc=True).limit(500).execute()
     return pd.DataFrame(res.data) if res.data else pd.DataFrame()
 
-# Carregar Configurações Atuais
 config = buscar_configuracoes()
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR (Opções visíveis) ---
 st.sidebar.title("🎛️ CORE CONTROL")
 st.sidebar.markdown("---")
-menu = st.sidebar.selectbox("NAVEGAÇÃO", ["🌍 VISÃO GERAL", "📊 ANÁLISE TÉCNICA", "⚙️ CONFIGURAÇÕES"])
+# Menu Radio para manter as opções sempre visíveis
+menu = st.sidebar.radio("NAVEGAÇÃO", ["🌍 VISÃO GERAL", "📊 ANÁLISE TÉCNICA", "⚙️ CONFIGURAÇÕES"])
 
 locais = {
     "JACUTINGA": ["jacutinga_b01", "jacutinga_b02", "jacutinga_b03"],
@@ -75,7 +75,6 @@ if menu == "🌍 VISÃO GERAL":
                 row = df_status[df_status['id_bomba'] == id_b]
                 if not row.empty:
                     val = row.iloc[0]
-                    # Lógica de Alerta (Se qualquer valor ultrapassar o limite, fica vermelho)
                     alert = (val['pressao'] > config['limite_pressao'] or 
                              val['mancal'] > config['limite_mancal'] or 
                              val.get('oleo', 0) > config['limite_oleo'] or
@@ -94,31 +93,30 @@ if menu == "🌍 VISÃO GERAL":
                         </div>
                     """, unsafe_allow_html=True)
                 else:
-                    st.markdown(f"""
-                        <div class="pump-card" style="border-top-color: #d1d5db; color: #9ca3af;">
-                            <h3>{id_b.upper()}</h3>
-                            <p>OFF-LINE</p>
-                        </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f'<div class="pump-card" style="border-top-color:#d1d5db;color:#9ca3af;"><h3>{id_b.upper()}</h3><p>OFF-LINE</p></div>', unsafe_allow_html=True)
 
 elif menu == "📊 ANÁLISE TÉCNICA":
     st.title("📈 Gráficos de Tendência")
     todos_ativos = [b for l in locais.values() for b in l]
-    selecionados = st.multiselect("Selecione os ativos para análise:", todos_ativos, default=[todos_ativos[0]])
+    selecionados = st.multiselect("Bombas para análise:", todos_ativos, default=[todos_ativos[0]])
     
     if selecionados:
         df_h = buscar_historico(selecionados)
         if not df_h.empty:
             df_h['data_hora'] = pd.to_datetime(df_h['data_hora'])
-            
             t1, t2, t3 = st.tabs(["📉 Pressão", "🌡️ Temperaturas", "📳 Vibração (Eixos)"])
             
             with t1:
                 st.plotly_chart(px.line(df_h, x="data_hora", y="pressao", color="id_bomba", template="plotly_white"), use_container_width=True)
             with t2:
-                st.plotly_chart(px.line(df_h, x="data_hora", y=["mancal", "oleo"], color="id_bomba", template="plotly_white"), use_container_width=True)
+                # CORREÇÃO DE CORES: Mancal e Óleo agora têm cores fixas para não confundir
+                fig_temp = px.line(df_h, x="data_hora", y=["mancal", "oleo"], 
+                                   color_discrete_map={"mancal": "#FF4B4B", "oleo": "#00CCFF"},
+                                   title="Comparativo: Mancal (Vermelho) vs Óleo (Azul)",
+                                   template="plotly_white")
+                st.plotly_chart(fig_temp, use_container_width=True)
             with t3:
-                eixos = st.multiselect("Eixos de Vibração:", ["rms", "vx", "vy", "vz"], default=["rms", "vx"])
+                eixos = st.multiselect("Eixos:", ["rms", "vx", "vy", "vz"], default=["rms", "vx"])
                 st.plotly_chart(px.line(df_h, x="data_hora", y=eixos, color="id_bomba", template="plotly_white"), use_container_width=True)
 
 elif menu == "⚙️ CONFIGURAÇÕES":
@@ -129,23 +127,14 @@ elif menu == "⚙️ CONFIGURAÇÕES":
         st.success("Acesso Liberado")
         with st.form("set_alarms"):
             c1, c2 = st.columns(2)
-            with c1:
-                p_max = st.number_input("Limite Pressão (bar)", value=float(config['limite_pressao']))
-                m_max = st.number_input("Limite Temp. Mancal (°C)", value=float(config['limite_mancal']))
-            with c2:
-                o_max = st.number_input("Limite Temp. Óleo (°C)", value=float(config['limite_oleo']))
-                r_max = st.number_input("Limite Vibração RMS", value=float(config['limite_rms']))
-            
+            p_max = c1.number_input("Limite Pressão (bar)", value=float(config['limite_pressao']))
+            m_max = c1.number_input("Limite Temp. Mancal (°C)", value=float(config['limite_mancal']))
+            o_max = c2.number_input("Limite Temp. Óleo (°C)", value=float(config['limite_oleo']))
+            r_max = c2.number_input("Limite Vibração RMS", value=float(config['limite_rms']))
             nova_senha = st.text_input("Alterar Senha", value=config['senha_acesso'])
             
-            if st.form_submit_button("GRAVAR CONFIGURAÇÕES NO BANCO"):
-                novos_dados = {
-                    "limite_pressao": p_max, "limite_mancal": m_max,
-                    "limite_oleo": o_max, "limite_rms": r_max,
-                    "senha_acesso": nova_senha
-                }
+            if st.form_submit_button("GRAVAR CONFIGURAÇÕES"):
+                novos_dados = {"limite_pressao": p_max, "limite_mancal": m_max, "limite_oleo": o_max, "limite_rms": r_max, "senha_acesso": nova_senha}
                 supabase.table("configuracoes").update(novos_dados).eq("id", 1).execute()
-                st.success("Configurações atualizadas com sucesso!")
+                st.success("Salvo com sucesso!")
                 st.rerun()
-    elif senha_input != "":
-        st.error("Senha Incorreta")
