@@ -223,3 +223,4 @@ elif menu == "⚙️ CONFIGURAÇÕES":
                 supabase.table("configuracoes").update(novos_dados).eq("id", 1).execute()
                 st.success("Salvo com sucesso!")
                 st.rerun()
+
