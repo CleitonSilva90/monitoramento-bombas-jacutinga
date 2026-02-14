@@ -1,4 +1,6 @@
-fastapi
-uvicorn
+streamlit
+pandas
+plotly
 supabase
-python-dotenv
+streamlit-option-menu
+streamlit-autorefresh
