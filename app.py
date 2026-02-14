@@ -7,7 +7,7 @@ import plotly.express as px
 # --- 1. CONFIGURAÇÃO VISUAL MODERNA ---
 st.set_page_config(page_title="PRO-TELEMETRY | Indústria 4.0", layout="wide")
 
-# CSS Ajustado: Menu lateral em VERDE ELÉTRICO para máxima visibilidade
+# CSS Ajustado: Fundo escuro e LETRAS em AZUL DEEP SKY (#00BFFF)
 st.markdown("""
     <style>
     /* Fundo do menu lateral */
@@ -15,22 +15,22 @@ st.markdown("""
         background-color: #111827; 
     }
     
-    /* COR DO TEXTO NO MENU LATERAL (VERDE ELÉTRICO NEON) */
+    /* COR SOMENTE DAS LETRAS E ÍCONES NO MENU LATERAL */
     [data-testid="stSidebar"] * {
-        color: #3dfc03 !important; /* Verde Limão Neon */
+        color: #00BFFF !important; 
     }
     
-    /* Estilização para as opções do Radio Button (Texto maior e negrito) */
+    /* Estilização para as opções do Radio Button */
     [data-testid="stWidgetLabel"] p {
-        color: #3dfc03 !important;
+        color: #00BFFF !important;
         font-size: 1.2rem !important;
         font-weight: 800 !important;
-        text-shadow: 0px 0px 5px rgba(61, 252, 3, 0.3);
+        text-shadow: 0px 0px 5px rgba(0, 191, 255, 0.2);
     }
     
-    /* Linha divisória em verde */
+    /* Linha divisória em azul */
     hr {
-        border-color: #3dfc03 !important;
+        border-color: #00BFFF !important;
     }
 
     .main { background-color: #f3f4f6; }
@@ -103,10 +103,17 @@ if menu == "🌍 VISÃO GERAL":
                     
                     cor_borda = "#ef4444" if alert else "#10b981"
                     
+                    # AJUSTE DE DATA/HORA PARA O SEU FUSO (SEM CORTES MANUAIS)
+                    try:
+                        dt_obj = pd.to_datetime(val['ultima_batida'])
+                        data_formatada = dt_obj.strftime('%d/%m %H:%M:%S')
+                    except:
+                        data_formatada = val['ultima_batida']
+
                     st.markdown(f"""
                         <div class="pump-card" style="border-top-color: {cor_borda}">
                             <h3 style="margin:0;">{id_b.upper()}</h3>
-                            <p style="font-size:12px; color:gray;">Sinal: {val['ultima_batida'][11:19]}</p>
+                            <p style="font-size:12px; color:gray;">Sinal: {data_formatada}</p>
                             <div class="stat-row"><span class="stat-label">⛽ Pressão</span><span class="stat-value">{val['pressao']:.2f} bar</span></div>
                             <div class="stat-row"><span class="stat-label">🌡️ Mancal</span><span class="stat-value">{val['mancal']:.1f} °C</span></div>
                             <div class="stat-row"><span class="stat-label">🔥 Óleo</span><span class="stat-value">{val.get('oleo', 0):.1f} °C</span></div>
@@ -128,16 +135,21 @@ elif menu == "📊 ANÁLISE TÉCNICA":
             t1, t2, t3 = st.tabs(["📉 Pressão", "🌡️ Temperaturas", "📳 Vibração (Eixos)"])
             
             with t1:
-                st.plotly_chart(px.line(df_h, x="data_hora", y="pressao", color="id_bomba", template="plotly_white"), use_container_width=True)
+                fig1 = px.line(df_h, x="data_hora", y="pressao", color="id_bomba", template="plotly_white")
+                fig1.update_xaxes(tickformat="%d/%m\n%H:%M", title_text="Hora Local")
+                st.plotly_chart(fig1, width="stretch") 
             with t2:
-                fig_temp = px.line(df_h, x="data_hora", y=["mancal", "oleo"], 
+                fig2 = px.line(df_h, x="data_hora", y=["mancal", "oleo"], 
                                    color_discrete_map={"mancal": "#FF4B4B", "oleo": "#00CCFF"},
                                    title="Comparativo: Mancal (Vermelho) vs Óleo (Azul)",
                                    template="plotly_white")
-                st.plotly_chart(fig_temp, use_container_width=True)
+                fig2.update_xaxes(tickformat="%d/%m\n%H:%M", title_text="Hora Local")
+                st.plotly_chart(fig2, width="stretch") 
             with t3:
                 eixos = st.multiselect("Eixos:", ["rms", "vx", "vy", "vz"], default=["rms", "vx"])
-                st.plotly_chart(px.line(df_h, x="data_hora", y=eixos, color="id_bomba", template="plotly_white"), use_container_width=True)
+                fig3 = px.line(df_h, x="data_hora", y=eixos, color="id_bomba", template="plotly_white")
+                fig3.update_xaxes(tickformat="%d/%m\n%H:%M", title_text="Hora Local")
+                st.plotly_chart(fig3, width="stretch") 
 
 elif menu == "⚙️ CONFIGURAÇÕES":
     st.title("🔐 Configuração de Alarmes")
