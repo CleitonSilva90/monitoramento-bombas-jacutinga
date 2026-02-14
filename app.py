@@ -7,10 +7,32 @@ import plotly.express as px
 # --- 1. CONFIGURAÇÃO VISUAL MODERNA ---
 st.set_page_config(page_title="PRO-TELEMETRY | Indústria 4.0", layout="wide")
 
-# CSS Ajustado: Menu lateral com melhor contraste e cards industriais
+# CSS Ajustado: Menu lateral em VERDE ELÉTRICO para máxima visibilidade
 st.markdown("""
     <style>
-    [data-testid="stSidebar"] { background-color: #1f2937; color: white; } 
+    /* Fundo do menu lateral */
+    [data-testid="stSidebar"] { 
+        background-color: #111827; 
+    }
+    
+    /* COR DO TEXTO NO MENU LATERAL (VERDE ELÉTRICO NEON) */
+    [data-testid="stSidebar"] * {
+        color: #3dfc03 !important; /* Verde Limão Neon */
+    }
+    
+    /* Estilização para as opções do Radio Button (Texto maior e negrito) */
+    [data-testid="stWidgetLabel"] p {
+        color: #3dfc03 !important;
+        font-size: 1.2rem !important;
+        font-weight: 800 !important;
+        text-shadow: 0px 0px 5px rgba(61, 252, 3, 0.3);
+    }
+    
+    /* Linha divisória em verde */
+    hr {
+        border-color: #3dfc03 !important;
+    }
+
     .main { background-color: #f3f4f6; }
     .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
     .pump-card {
@@ -50,10 +72,9 @@ def buscar_historico(ids_selecionados):
 
 config = buscar_configuracoes()
 
-# --- 4. SIDEBAR (Opções visíveis) ---
+# --- 4. SIDEBAR ---
 st.sidebar.title("🎛️ CORE CONTROL")
 st.sidebar.markdown("---")
-# Menu Radio para manter as opções sempre visíveis
 menu = st.sidebar.radio("NAVEGAÇÃO", ["🌍 VISÃO GERAL", "📊 ANÁLISE TÉCNICA", "⚙️ CONFIGURAÇÕES"])
 
 locais = {
@@ -109,7 +130,6 @@ elif menu == "📊 ANÁLISE TÉCNICA":
             with t1:
                 st.plotly_chart(px.line(df_h, x="data_hora", y="pressao", color="id_bomba", template="plotly_white"), use_container_width=True)
             with t2:
-                # CORREÇÃO DE CORES: Mancal e Óleo agora têm cores fixas para não confundir
                 fig_temp = px.line(df_h, x="data_hora", y=["mancal", "oleo"], 
                                    color_discrete_map={"mancal": "#FF4B4B", "oleo": "#00CCFF"},
                                    title="Comparativo: Mancal (Vermelho) vs Óleo (Azul)",
