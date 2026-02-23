@@ -9,6 +9,7 @@ from supabase import create_client, Client
 import os
 from streamlit_autorefresh import st_autorefresh
 
+
 # ============================================================================
 # 1. CONFIGURAÇÃO INICIAL
 # ============================================================================
@@ -779,8 +780,11 @@ st.markdown("---")
 
 # VIEW: DASHBOARD
 if st.session_state.view == 'dashboard':
-        # Auto atualização a cada 10 segundos
+    # Atualização automática a cada 10 segundos
     st_autorefresh(interval=10000, key="dashboard_refresh")
+
+    # Atualiza dados (importante para pegar dados novos)
+    df = get_current_data()
     
     # Botão de atualização
     col_refresh, col_filter = st.columns([1, 9])
@@ -951,7 +955,7 @@ elif st.session_state.view == 'config':
         limite_pressao = st.number_input(
             "Limite Mínimo de Pressão (bar)",
             min_value=0.1,
-            max_value=10.0,
+            max_value=40.0,
             value=float(config['limite_pressao']),
             step=0.1,
             help="Pressão abaixo deste valor gera alarme"
@@ -1040,3 +1044,4 @@ st.markdown(f"""
         GS Inima Sistemas © 2025 | Conectado ao Supabase | Última atualização: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
     </div>
 """, unsafe_allow_html=True)
+
