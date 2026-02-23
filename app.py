@@ -1109,8 +1109,8 @@ if st.session_state.view == 'dashboard':
     k1, k2, k3, k4, k5 = st.columns(5)
     
     with k1:
-    total_bombas = len(df_show)
-    online_bombas = len(df_online)
+        total_bombas = len(df_show)
+        online_bombas = len(df_online)
 
     percentual = (online_bombas / total_bombas * 100) if total_bombas > 0 else 0
 
@@ -2073,4 +2073,5 @@ st.markdown(f"""
         Última atualização: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")} | Próxima atualização automática em {time_until_refresh}s
     </div>
 """, unsafe_allow_html=True)
+
 
