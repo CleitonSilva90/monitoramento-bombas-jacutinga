@@ -944,14 +944,52 @@ if st.session_state.view == 'dashboard':
                     st.rerun()
 
 # Continuar com as outras views no próximo bloco...
+# ================================================================
+# FUNÇÃO DE SALVAMENTO NO SUPABASE
+# ================================================================
+
+def save_config_to_db(config):
+    try:
+        response = (
+            supabase
+            .table("configuracoes")
+            .update({
+                "limite_pressao": float(config.get("limite_pressao", 2.0)),
+                "limite_rms": float(config.get("limite_rms", 5.0)),
+                "limite_mancal": float(config.get("limite_mancal", 75.0)),
+                "limite_oleo": float(config.get("limite_oleo", 80.0)),
+            })
+            .eq("id", 1)  # ⚠️ IMPORTANTE: precisa existir id=1 na tabela
+            .execute()
+        )
+
+        return bool(response.data)
+
+    except Exception as e:
+        st.error(f"Erro ao salvar no banco: {e}")
+        return False
+
+
+# ================================================================
+# VIEW: CONFIG
+# ================================================================
+
 elif st.session_state.view == 'config':
+
     st.markdown("### ⚙️ Configurações do Sistema")
     st.info("💡 Ajuste os limites de alarmes. As alterações serão salvas no banco de dados.")
-    
-    tab1, tab2, tab3, tab4 = st.tabs(["⚙️ Pressão", "〰️ Vibração", "🌡️ Temp. Mancal", "💧 Temp. Óleo"])
-    
+
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["⚙️ Pressão", "〰️ Vibração", "🌡️ Temp. Mancal", "💧 Temp. Óleo"]
+    )
+
+    # ------------------------------------------------------------
+    # PRESSÃO
+    # ------------------------------------------------------------
+
     with tab1:
         st.markdown("#### Configurações de Pressão")
+
         limite_pressao = st.number_input(
             "Limite Mínimo de Pressão (bar)",
             min_value=0.1,
@@ -960,16 +998,24 @@ elif st.session_state.view == 'config':
             step=0.1,
             help="Pressão abaixo deste valor gera alarme"
         )
-        
-        if st.button("💾 Salvar Pressão", type="primary"):
-            config['limite_pressao'] = limite_pressao
+
+        if st.button("💾 Salvar Pressão", type="primary", key="btn_pressao"):
+            config['limite_pressao'] = float(limite_pressao)
+
             if save_config_to_db(config):
                 st.success("✅ Configuração salva!")
                 st.cache_data.clear()
                 st.rerun()
-    
+            else:
+                st.error("❌ Falha ao salvar.")
+
+    # ------------------------------------------------------------
+    # VIBRAÇÃO
+    # ------------------------------------------------------------
+
     with tab2:
         st.markdown("#### Configurações de Vibração")
+
         limite_rms = st.number_input(
             "Limite RMS (mm/s)",
             min_value=0.1,
@@ -977,16 +1023,24 @@ elif st.session_state.view == 'config':
             value=float(config['limite_rms']),
             step=0.1
         )
-        
-        if st.button("💾 Salvar Vibração", type="primary"):
-            config['limite_rms'] = limite_rms
+
+        if st.button("💾 Salvar Vibração", type="primary", key="btn_rms"):
+            config['limite_rms'] = float(limite_rms)
+
             if save_config_to_db(config):
                 st.success("✅ Configuração salva!")
                 st.cache_data.clear()
                 st.rerun()
-    
+            else:
+                st.error("❌ Falha ao salvar.")
+
+    # ------------------------------------------------------------
+    # MANCAL
+    # ------------------------------------------------------------
+
     with tab3:
         st.markdown("#### Configurações de Temperatura do Mancal")
+
         limite_mancal = st.number_input(
             "Limite Máximo (°C)",
             min_value=20,
@@ -994,16 +1048,24 @@ elif st.session_state.view == 'config':
             value=int(config['limite_mancal']),
             step=5
         )
-        
-        if st.button("💾 Salvar Mancal", type="primary"):
-            config['limite_mancal'] = limite_mancal
+
+        if st.button("💾 Salvar Mancal", type="primary", key="btn_mancal"):
+            config['limite_mancal'] = float(limite_mancal)
+
             if save_config_to_db(config):
                 st.success("✅ Configuração salva!")
                 st.cache_data.clear()
                 st.rerun()
-    
+            else:
+                st.error("❌ Falha ao salvar.")
+
+    # ------------------------------------------------------------
+    # ÓLEO
+    # ------------------------------------------------------------
+
     with tab4:
         st.markdown("#### Configurações de Temperatura do Óleo")
+
         limite_oleo = st.number_input(
             "Limite Máximo (°C)",
             min_value=20,
@@ -1011,14 +1073,16 @@ elif st.session_state.view == 'config':
             value=int(config['limite_oleo']),
             step=5
         )
-        
-        if st.button("💾 Salvar Óleo", type="primary"):
-            config['limite_oleo'] = limite_oleo
+
+        if st.button("💾 Salvar Óleo", type="primary", key="btn_oleo"):
+            config['limite_oleo'] = float(limite_oleo)
+
             if save_config_to_db(config):
                 st.success("✅ Configuração salva!")
                 st.cache_data.clear()
                 st.rerun()
-
+            else:
+                st.error("❌ Falha ao salvar.")
 elif st.session_state.view == 'alarmes':
     st.markdown("### 🚨 Central de Alarmes")
     
@@ -1044,4 +1108,5 @@ st.markdown(f"""
         GS Inima Sistemas © 2025 | Conectado ao Supabase | Última atualização: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
     </div>
 """, unsafe_allow_html=True)
+
 
