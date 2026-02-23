@@ -1,6 +1,15 @@
-streamlit
-pandas
-plotly
-supabase
-streamlit-option-menu
-streamlit-autorefresh
+# Dashboard GS Inima com Supabase - Dependências
+
+# Core
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Visualização
+plotly>=5.17.0
+
+# Banco de Dados
+supabase>=2.0.0
+
+# Opcional (para desenvolvimento)
+# watchdog>=3.0.0  # Auto-reload
