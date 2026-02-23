@@ -974,8 +974,7 @@ def save_config_to_db(config):
 # VIEW: CONFIG
 # ================================================================
 
-elif st.session_state.view == 'config':
-
+    elif st.session_state.view == 'config':
     st.markdown("### ⚙️ Configurações do Sistema")
     st.info("💡 Ajuste os limites de alarmes. As alterações serão salvas no banco de dados.")
 
@@ -983,130 +982,118 @@ elif st.session_state.view == 'config':
         ["⚙️ Pressão", "〰️ Vibração", "🌡️ Temp. Mancal", "💧 Temp. Óleo"]
     )
 
-    # ------------------------------------------------------------
-    # PRESSÃO
-    # ------------------------------------------------------------
-
+    # --- TAB 1: PRESSÃO ---
     with tab1:
         st.markdown("#### Configurações de Pressão")
-
         limite_pressao = st.number_input(
             "Limite Mínimo de Pressão (bar)",
             min_value=0.1,
             max_value=40.0,
-            value=float(config['limite_pressao']),
+            value=float(config.get('limite_pressao', 1.0)),
             step=0.1,
-            help="Pressão abaixo deste valor gera alarme"
+            help="Pressão abaixo deste valor gera alarme",
+            key="input_pressao"
         )
 
         if st.button("💾 Salvar Pressão", type="primary", key="btn_pressao"):
             config['limite_pressao'] = float(limite_pressao)
-
             if save_config_to_db(config):
-                st.success("✅ Configuração salva!")
+                st.success("✅ Configuração de Pressão salva!")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 st.error("❌ Falha ao salvar.")
 
-    # ------------------------------------------------------------
-    # VIBRAÇÃO
-    # ------------------------------------------------------------
-
+    # --- TAB 2: VIBRAÇÃO ---
     with tab2:
         st.markdown("#### Configurações de Vibração")
-
         limite_rms = st.number_input(
             "Limite RMS (mm/s)",
             min_value=0.1,
             max_value=10.0,
-            value=float(config['limite_rms']),
-            step=0.1
+            value=float(config.get('limite_rms', 4.5)),
+            step=0.1,
+            key="input_rms"
         )
 
         if st.button("💾 Salvar Vibração", type="primary", key="btn_rms"):
             config['limite_rms'] = float(limite_rms)
-
             if save_config_to_db(config):
-                st.success("✅ Configuração salva!")
+                st.success("✅ Configuração de Vibração salva!")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 st.error("❌ Falha ao salvar.")
 
-    # ------------------------------------------------------------
-    # MANCAL
-    # ------------------------------------------------------------
-
+    # --- TAB 3: MANCAL ---
     with tab3:
         st.markdown("#### Configurações de Temperatura do Mancal")
-
         limite_mancal = st.number_input(
             "Limite Máximo (°C)",
             min_value=20,
             max_value=150,
-            value=int(config['limite_mancal']),
-            step=5
+            value=int(config.get('limite_mancal', 75)),
+            step=5,
+            key="input_mancal"
         )
 
         if st.button("💾 Salvar Mancal", type="primary", key="btn_mancal"):
             config['limite_mancal'] = float(limite_mancal)
-
             if save_config_to_db(config):
-                st.success("✅ Configuração salva!")
+                st.success("✅ Configuração de Mancal salva!")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 st.error("❌ Falha ao salvar.")
 
-    # ------------------------------------------------------------
-    # ÓLEO
-    # ------------------------------------------------------------
-
+    # --- TAB 4: ÓLEO ---
     with tab4:
         st.markdown("#### Configurações de Temperatura do Óleo")
-
         limite_oleo = st.number_input(
             "Limite Máximo (°C)",
             min_value=20,
             max_value=150,
-            value=int(config['limite_oleo']),
-            step=5
+            value=int(config.get('limite_oleo', 60)),
+            step=5,
+            key="input_oleo"
         )
 
         if st.button("💾 Salvar Óleo", type="primary", key="btn_oleo"):
             config['limite_oleo'] = float(limite_oleo)
-
             if save_config_to_db(config):
-                st.success("✅ Configuração salva!")
+                st.success("✅ Configuração de Óleo salva!")
                 st.cache_data.clear()
                 st.rerun()
             else:
                 st.error("❌ Falha ao salvar.")
+
 elif st.session_state.view == 'alarmes':
     st.markdown("### 🚨 Central de Alarmes")
     
     df_alarmes = get_alarmes()
     
-    if len(df_alarmes) == 0:
+    if df_alarmes is None or len(df_alarmes) == 0:
         st.success("✅ Nenhum alarme ativo no momento!")
     else:
         for idx, row in df_alarmes.iterrows():
-            status_color = "#10b981" if row['ack'] else "#ef4444"
+            # Define cor baseada no reconhecimento (ack) ou severidade
+            status_color = "#10b981" if row.get('ack', False) else "#ef4444"
             st.markdown(f"""
-                <div style='background: rgba(15, 23, 42, 0.5); border-left: 4px solid {status_color}; padding: 15px; border-radius: 8px; margin: 10px 0;'>
-                    <div style='font-size: 0.85rem; color: #94a3b8;'>{row['timestamp']}</div>
-                    <div style='font-size: 1.2rem; font-weight: 600; color: white; margin: 5px 0;'>{row['bomba']}</div>
-                    <div style='font-size: 1rem; color: #e2e8f0;'>{row['mensagem']}</div>
+                <div style='background: rgba(30, 41, 59, 0.7); border-left: 5px solid {status_color}; padding: 15px; border-radius: 8px; margin-bottom: 12px; border-top: 1px solid #334155;'>
+                    <div style='display: flex; justify-content: space-between; align-items: center;'>
+                        <span style='font-size: 0.8rem; color: #94a3b8; font-family: monospace;'>{row['timestamp']}</span>
+                        <span style='font-size: 0.7rem; color: {status_color}; font-weight: bold;'>{"RECONHECIDO" if row.get('ack') else "ATIVO"}</span>
+                    </div>
+                    <div style='font-size: 1.1rem; font-weight: 700; color: #f8fafc; margin-top: 5px;'>{row['bomba']}</div>
+                    <div style='font-size: 0.95rem; color: #cbd5e1; margin-top: 3px;'>{row['mensagem']}</div>
                 </div>
             """, unsafe_allow_html=True)
 
-# Rodapé
+# Rodapé universal
 st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown(f"""
     <div style='text-align: center; color: #64748b; font-size: 0.8rem; padding: 20px; border-top: 1px solid #1e293b;'>
-        GS Inima Sistemas © 2025 | Conectado ao Supabase | Última atualização: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
+        GS Inima Sistemas © 2025 | Conectado ao Supabase | 
+        <span style='color: #3b82f6;'>Última atualização: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}</span>
     </div>
 """, unsafe_allow_html=True)
-
-
