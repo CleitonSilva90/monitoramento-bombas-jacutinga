@@ -86,8 +86,12 @@ def get_current_data():
             config = get_config()
             df['status'] = df.apply(lambda row: determine_status(row, config), axis=1)
             
-            # Campos adicionais
-            df['corrente'] = df.get('corrente', 45.0).fillna(45.0)
+            # Campos adicionais - corrigido: evita chamar .fillna() em float
+            if 'corrente' in df.columns:
+                df['corrente'] = df['corrente'].fillna(45.0)
+            else:
+                df['corrente'] = 45.0
+
             df['potencia'] = 22.0
             df['tensao_motor'] = 380.0  # Tensão nominal do motor (V)
             df['tensao_rede'] = 382.0   # Tensão da rede (V)
@@ -824,11 +828,6 @@ with col_nav2:
 
 st.markdown("---")
 
-# ==================================================================
-# CONTINUAREI NA PRÓXIMA PARTE COM AS VIEWS COMPLETAS
-# ==================================================================
-
-
 # ============================================================================
 # VIEW: DASHBOARD
 # ============================================================================
@@ -1106,9 +1105,6 @@ elif st.session_state.view == 'detalhes':
                 c2.metric("Média", f"{historical_df['corrente'].mean():.1f} A")
                 c3.metric("Máximo", f"{historical_df['corrente'].max():.1f} A")
                 c4.metric("Mínimo", f"{historical_df['corrente'].min():.1f} A")
-
-# CONTINUA NA PARTE 3...
-
 
 # ============================================================================
 # VIEW: ALARMES
@@ -1435,8 +1431,8 @@ elif st.session_state.view == 'config':
         limite_corrente = st.number_input(
             "Limite Máximo (A)",
             min_value=10.0,
-            max_value=600.0,
-            value=float(config.get('limite_corrente', 550.0)),
+            max_value=650.0,
+            value=float(config.get('limite_corrente', 500.0)),
             step=5.0,
             help="Corrente acima deste valor gera alarme",
             key="config_corrente"
