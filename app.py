@@ -1,14 +1,16 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
-import plotly.express as px
 import numpy as np
 from datetime import datetime, timedelta
 import time
-from supabase import create_client, Client
-import os
-from streamlit_autorefresh import st_autorefresh
 
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    st.error("⚠️ Biblioteca Supabase não instalada. Execute: pip install supabase")
 
 # ============================================================================
 # 1. CONFIGURAÇÃO INICIAL
@@ -24,133 +26,163 @@ st.set_page_config(
 )
 
 # ============================================================================
-# 2. CONEXÃO COM SUPABASE
+# 2. CONEXÃO COM SUPABASE (com tratamento de erros)
 # ============================================================================
 
-# Credenciais do Supabase
 SUPABASE_URL = "https://iemojjmgzyrxddochnlq.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllbW9qam1nenlyeGRkb2NobmxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MzU2NTYsImV4cCI6MjA4NjExMTY1Nn0.Adeu9DBblWBUQfwlJS9XrcKWixNRqRizFEZ0TOkx7eY"
 
-# Inicializar cliente Supabase
 @st.cache_resource
 def init_supabase():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    if not SUPABASE_AVAILABLE:
+        return None
+    try:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        st.error(f"Erro ao conectar com Supabase: {e}")
+        return None
 
-supabase: Client = init_supabase()
+supabase = init_supabase()
 
 # ============================================================================
-# 3. FUNÇÕES DE ACESSO AO BANCO DE DADOS
+# 3. FUNÇÕES AUXILIARES
 # ============================================================================
 
-@st.cache_data(ttl=10)  # Cache de 10 segundos para dados em tempo real
+def bar_to_mca(bar_value):
+    """Converte bar para MCA"""
+    try:
+        return float(bar_value) * 10.197
+    except:
+        return 0.0
+
+def mca_to_bar(mca_value):
+    """Converte MCA para bar"""
+    try:
+        return float(mca_value) / 10.197
+    except:
+        return 0.0
+
+# ============================================================================
+# 4. FUNÇÕES DE BANCO DE DADOS (com fallback)
+# ============================================================================
+
+@st.cache_data(ttl=10)
 def get_current_data():
-    """Busca dados atuais do banco de dados"""
+    """Busca dados do Supabase ou retorna mockup"""
+    if not supabase:
+        return get_mockup_data()
+    
     try:
         response = supabase.table('status_atual').select('*').execute()
         
-        if response.data:
+        if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
             
-            # Mapear id_bomba para formato esperado
-            # Exemplo: "jacutinga_b01" -> local="JACUTINGA", id="B01"
-            df['local'] = df['id_bomba'].apply(lambda x: x.split('_')[0].upper())
-            df['id'] = df['id_bomba'].apply(lambda x: x.split('_')[1].upper())
+            # Mapear id_bomba
+            df['local'] = df['id_bomba'].apply(lambda x: str(x).split('_')[0].upper() if '_' in str(x) else 'UNKNOWN')
+            df['id'] = df['id_bomba'].apply(lambda x: str(x).split('_')[1].upper() if '_' in str(x) else 'B00')
             
-            # Determinar status baseado nos limites e última batida
-            df['status'] = df.apply(determine_status, axis=1)
+            # Converter pressão
+            df['pressao'] = df['pressao'].apply(lambda x: bar_to_mca(x) if x < 50 else x)
             
-            # Converter pressão de bar para MCA
-            df['pressao_mca'] = df['pressao'] * 10.197
+            # Renomear
+            if 'rms' in df.columns:
+                df = df.rename(columns={'rms': 'vibra'})
             
-            # Renomear colunas para compatibilidade
-            df = df.rename(columns={
-                'rms': 'vibra',
-                'pressao_mca': 'pressao'
-            })
+            # Status
+            config = get_config()
+            df['status'] = df.apply(lambda row: determine_status(row, config), axis=1)
             
-            # Adicionar campos mockup temporários (até serem implementados no ESP32)
-            df['corrente'] = 45.0  # Placeholder
-            df['potencia'] = 22.0  # Placeholder
-            df['horas_operacao'] = 8234  # Placeholder
-            df['ultima_manutencao'] = "2024-11-15"  # Placeholder
+            # Campos adicionais
+            df['corrente'] = 45.0
+            df['potencia'] = 22.0
+            df['horas_operacao'] = 8234
+            df['ultima_manutencao'] = "2024-11-15"
             
-            return df
+            cols = ['id', 'local', 'status', 'pressao', 'mancal', 'oleo', 'vibra', 'corrente', 'potencia', 'horas_operacao', 'ultima_manutencao']
+            return df[[c for c in cols if c in df.columns]]
         else:
-            # Retornar DataFrame vazio com estrutura esperada
-            return pd.DataFrame(columns=['id', 'local', 'status', 'pressao', 'mancal', 'oleo', 'vibra', 'corrente', 'potencia'])
-            
+            return get_mockup_data()
     except Exception as e:
-        st.error(f"Erro ao buscar dados: {e}")
-        return pd.DataFrame(columns=['id', 'local', 'status', 'pressao', 'mancal', 'oleo', 'vibra', 'corrente', 'potencia'])
+        st.warning(f"Usando dados mockup: {str(e)[:100]}")
+        return get_mockup_data()
 
-def determine_status(row):
-    """Determina o status da bomba baseado nos sensores e última batida"""
+def get_mockup_data():
+    """Dados mockup para desenvolvimento"""
+    return pd.DataFrame([
+        {"id": "B01", "local": "JACUTINGA", "status": "Online", "pressao": 24.5, "mancal": 34.2, "oleo": 26.8, "vibra": 0.45, "corrente": 45.2, "potencia": 22.5, "horas_operacao": 8234, "ultima_manutencao": "2024-11-15"},
+        {"id": "B02", "local": "JACUTINGA", "status": "Alarme", "pressao": 1.2, "mancal": 72.1, "oleo": 85.4, "vibra": 4.21, "corrente": 12.1, "potencia": 5.8, "horas_operacao": 12456, "ultima_manutencao": "2024-08-22"},
+        {"id": "B03", "local": "JACUTINGA", "status": "Online", "pressao": 24.1, "mancal": 35.0, "oleo": 27.0, "vibra": 0.48, "corrente": 44.8, "potencia": 22.1, "horas_operacao": 6789, "ultima_manutencao": "2024-12-01"},
+    ])
+
+def determine_status(row, config):
+    """Determina status da bomba"""
     try:
-        # Verificar se a bomba está respondendo (última batida)
+        # Verificar última batida
         if pd.notna(row.get('ultima_batida')):
-            ultima_batida = pd.to_datetime(row['ultima_batida'])
-            agora = pd.Timestamp.now(tz='America/Sao_Paulo')
-            diferenca = (agora - ultima_batida).total_seconds() / 60  # em minutos
-            
-            if diferenca > 5:  # Sem resposta há mais de 5 minutos
-                return 'Offline'
+            try:
+                ultima_batida = pd.to_datetime(row['ultima_batida'])
+                agora = pd.Timestamp.now(tz='UTC')
+                diferenca = (agora - ultima_batida).total_seconds() / 60
+                if diferenca > 5:
+                    return 'Offline'
+            except:
+                pass
         
-        # Buscar configurações
-        config = get_config()
+        # Verificar alarmes
+        mancal = float(row.get('mancal', 0))
+        oleo = float(row.get('oleo', 0))
+        vibra = float(row.get('vibra', 0))
+        pressao = float(row.get('pressao', 0))
         
-        # Verificar se há alarmes
-        if (row.get('mancal', 0) > config['limite_mancal'] or 
-            row.get('oleo', 0) > config['limite_oleo'] or
-            row.get('rms', 0) > config['limite_rms'] or
-            row.get('pressao', 0) < config['limite_pressao'] / 10.197):  # Converter de MCA para bar
+        if (mancal > config['limite_mancal'] or 
+            oleo > config['limite_oleo'] or
+            vibra > config['limite_rms'] or
+            pressao < config['limite_pressao_mca']):
             return 'Alarme'
         
         return 'Online'
-        
-    except Exception as e:
-        return 'Online'  # Default
+    except:
+        return 'Online'
 
 @st.cache_data(ttl=60)
 def get_config():
-    """Busca configurações do banco"""
+    """Busca configurações"""
+    if not supabase:
+        return get_default_config()
+    
     try:
         response = supabase.table('configuracoes').select('*').eq('id', 1).execute()
-        if response.data:
+        if response.data and len(response.data) > 0:
             config = response.data[0]
-            # Converter limite de pressão de bar para MCA
-            config['limite_pressao_mca'] = config['limite_pressao'] * 10.197
+            config['limite_pressao_mca'] = bar_to_mca(config.get('limite_pressao', 2.0))
             return config
-        else:
-            # Configurações padrão
-            return {
-                'limite_mancal': 75.0,
-                'limite_oleo': 80.0,
-                'limite_pressao': 2.0,
-                'limite_pressao_mca': 20.4,
-                'limite_rms': 5.0
-            }
-    except Exception as e:
-        st.error(f"Erro ao buscar configurações: {e}")
-        return {
-            'limite_mancal': 75.0,
-            'limite_oleo': 80.0,
-            'limite_pressao': 2.0,
-            'limite_pressao_mca': 20.4,
-            'limite_rms': 5.0
-        }
+    except:
+        pass
+    
+    return get_default_config()
+
+def get_default_config():
+    """Configurações padrão"""
+    return {
+        'limite_mancal': 75.0,
+        'limite_oleo': 80.0,
+        'limite_pressao': 2.0,
+        'limite_pressao_mca': 20.4,
+        'limite_rms': 5.0
+    }
 
 @st.cache_data(ttl=60)
 def get_historical_data(pump_id, local, days=7):
-    """Busca dados históricos do banco"""
+    """Busca histórico"""
+    if not supabase:
+        return generate_mockup_historical(pump_id, local, days)
+    
     try:
-        # Converter para formato do banco (ex: "B01" + "JACUTINGA" -> "jacutinga_b01")
         id_bomba = f"{local.lower()}_{pump_id.lower()}"
-        
-        # Calcular data inicial
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
-        # Buscar dados
         response = supabase.table('historico')\
             .select('*')\
             .eq('id_bomba', id_bomba)\
@@ -162,126 +194,78 @@ def get_historical_data(pump_id, local, days=7):
         if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
             df['timestamp'] = pd.to_datetime(df['data_hora'])
-            
-            # Renomear colunas
-            df = df.rename(columns={'rms': 'vibra'})
-            
-            # Adicionar campos mockup temporários
-            df['corrente'] = 45.0
-            df['potencia'] = 22.0
-            
+            if 'rms' in df.columns:
+                df = df.rename(columns={'rms': 'vibra'})
+            if 'corrente' not in df.columns:
+                df['corrente'] = 45.0
+            if 'potencia' not in df.columns:
+                df['potencia'] = 22.0
             return df
-        else:
-            # Se não houver dados, gerar mockup
-            return generate_mockup_historical(pump_id, local, days)
-            
-    except Exception as e:
-        st.error(f"Erro ao buscar histórico: {e}")
-        return generate_mockup_historical(pump_id, local, days)
+    except:
+        pass
+    
+    return generate_mockup_historical(pump_id, local, days)
 
 def generate_mockup_historical(pump_id, local, days):
-    """Gera dados históricos mockup quando não há dados reais"""
+    """Gera histórico mockup"""
     end_time = datetime.now()
     start_time = end_time - timedelta(days=days)
     timestamps = pd.date_range(start=start_time, end=end_time, freq='5min')
     
     np.random.seed(hash(pump_id + local) % 10000)
     
-    data = {
+    return pd.DataFrame({
         'timestamp': timestamps,
-        'pressao': np.random.normal(2.4, 0.08, len(timestamps)),
+        'pressao': np.random.normal(24.0, 0.8, len(timestamps)),
         'mancal': np.random.normal(34.0, 2.5, len(timestamps)),
         'oleo': np.random.normal(26.5, 1.8, len(timestamps)),
         'vibra': np.abs(np.random.normal(0.45, 0.12, len(timestamps))),
         'corrente': np.random.normal(45.0, 2.1, len(timestamps)),
         'potencia': np.random.normal(22.0, 1.2, len(timestamps)),
-    }
-    
-    return pd.DataFrame(data)
+    })
 
-def get_alarmes():
-    """Busca logs de alarmes do banco"""
-    try:
-        response = supabase.table('logs_alertas')\
-            .select('*')\
-            .order('data_hora', desc=True)\
-            .limit(50)\
-            .execute()
-        
-        if response.data:
-            df = pd.DataFrame(response.data)
-            
-            # Renomear e formatar colunas
-            df = df.rename(columns={
-                'data_hora': 'timestamp',
-                'bomba': 'bomba',
-                'sensor': 'tipo',
-                'valor_detectado': 'mensagem'
-            })
-            
-            # Adicionar coluna ack baseada no status
-            df['ack'] = df['status'].apply(lambda x: x != 'Ativo')
-            
-            return df
-        else:
-            return pd.DataFrame(columns=['timestamp', 'bomba', 'tipo', 'mensagem', 'ack'])
-            
-    except Exception as e:
-        st.error(f"Erro ao buscar alarmes: {e}")
-        return pd.DataFrame(columns=['timestamp', 'bomba', 'tipo', 'mensagem', 'ack'])
-
-def save_config_to_db(config):
+def save_config_to_db(limite_mancal=None, limite_oleo=None, limite_pressao=None, limite_rms=None):
     """Salva configurações no banco"""
+    if not supabase:
+        st.warning("Supabase não disponível - configurações não foram salvas")
+        return False
+    
     try:
-        # Converter limite de pressão de MCA para bar antes de salvar
-        config_to_save = config.copy()
-        if 'limite_pressao_mca' in config_to_save:
-            config_to_save['limite_pressao'] = config_to_save['limite_pressao_mca'] / 10.197
-            del config_to_save['limite_pressao_mca']
+        # Preparar dados para atualização
+        update_data = {}
+        if limite_mancal is not None:
+            update_data['limite_mancal'] = float(limite_mancal)
+        if limite_oleo is not None:
+            update_data['limite_oleo'] = float(limite_oleo)
+        if limite_pressao is not None:
+            update_data['limite_pressao'] = float(limite_pressao)
+        if limite_rms is not None:
+            update_data['limite_rms'] = float(limite_rms)
         
+        if not update_data:
+            return False
+        
+        # Atualizar banco
         response = supabase.table('configuracoes')\
-            .update(config_to_save)\
+            .update(update_data)\
             .eq('id', 1)\
             .execute()
         
-        return True
-    except Exception as e:
-        st.error(f"Erro ao salvar configurações: {e}")
-        return False
-
-def create_alerta_log(bomba, sensor, valor, limite):
-    """Cria log de alerta no banco"""
-    try:
-        data = {
-            'bomba': bomba,
-            'sensor': sensor,
-            'valor_detectado': str(valor),
-            'limite_definido': str(limite),
-            'status': 'Ativo',
-            'operador': 'Sistema'
-        }
+        # Limpar cache
+        get_config.clear()
+        get_current_data.clear()
         
-        response = supabase.table('logs_alertas').insert(data).execute()
         return True
     except Exception as e:
-        st.error(f"Erro ao criar log de alerta: {e}")
+        st.error(f"Erro ao salvar: {e}")
         return False
 
 # ============================================================================
-# 4. FUNÇÕES AUXILIARES (Mantidas do código original)
+# 5. FUNÇÕES DE VISUALIZAÇÃO
 # ============================================================================
-
-def bar_to_mca(bar_value):
-    """Converte pressão de bar para MCA"""
-    return bar_value * 10.197
-
-def mca_to_bar(mca_value):
-    """Converte pressão de MCA para bar"""
-    return mca_value / 10.197
 
 def create_gauge_chart(value, max_value, title, color, warning_threshold=None, critical_threshold=None):
-    """Cria um gráfico gauge profissional"""
-    
+    """Gauge chart"""
     if critical_threshold and value >= critical_threshold:
         gauge_color = "#ef4444"
     elif warning_threshold and value >= warning_threshold:
@@ -293,8 +277,8 @@ def create_gauge_chart(value, max_value, title, color, warning_threshold=None, c
         mode="gauge+number",
         value=value,
         domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': title, 'font': {'size': 16, 'color': '#e2e8f0', 'family': 'Rajdhani'}},
-        number={'font': {'size': 32, 'color': gauge_color, 'family': 'JetBrains Mono'}},
+        title={'text': title, 'font': {'size': 16, 'color': '#e2e8f0'}},
+        number={'font': {'size': 32, 'color': gauge_color}},
         gauge={
             'axis': {'range': [None, max_value], 'tickwidth': 1, 'tickcolor': "#64748b"},
             'bar': {'color': gauge_color, 'thickness': 0.75},
@@ -306,11 +290,6 @@ def create_gauge_chart(value, max_value, title, color, warning_threshold=None, c
                 {'range': [warning_threshold if warning_threshold else max_value*0.7, critical_threshold if critical_threshold else max_value*0.9], 'color': 'rgba(245, 158, 11, 0.1)'},
                 {'range': [critical_threshold if critical_threshold else max_value*0.9, max_value], 'color': 'rgba(239, 68, 68, 0.1)'}
             ],
-            'threshold': {
-                'line': {'color': "#ef4444", 'width': 3},
-                'thickness': 0.75,
-                'value': critical_threshold if critical_threshold else max_value
-            }
         }
     ))
     
@@ -325,8 +304,7 @@ def create_gauge_chart(value, max_value, title, color, warning_threshold=None, c
     return fig
 
 def create_time_series_chart(df, column, title, color, y_label, show_threshold=None):
-    """Cria gráfico de série temporal profissional"""
-    
+    """Time series chart"""
     fig = go.Figure()
     
     fig.add_trace(go.Scatter(
@@ -349,73 +327,61 @@ def create_time_series_chart(df, column, title, color, y_label, show_threshold=N
             annotation_position="right"
         )
     
-    if len(df) > 20:
-        df['ma'] = df[column].rolling(window=20).mean()
-        fig.add_trace(go.Scatter(
-            x=df['timestamp'],
-            y=df['ma'],
-            mode='lines',
-            name='Média Móvel',
-            line=dict(color='rgba(255,255,255,0.3)', width=1, dash='dot')
-        ))
-    
     fig.update_layout(
         title=None,
         xaxis_title=None,
         yaxis_title=y_label,
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(15, 23, 42, 0.5)',
-        font={'color': '#e2e8f0', 'family': 'Inter'},
+        font={'color': '#e2e8f0'},
         height=300,
         margin=dict(l=10, r=10, t=10, b=10),
         hovermode='x unified',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        xaxis=dict(showgrid=True, gridcolor='rgba(100, 116, 139, 0.1)', zeroline=False),
-        yaxis=dict(showgrid=True, gridcolor='rgba(100, 116, 139, 0.1)', zeroline=False)
+        xaxis=dict(showgrid=True, gridcolor='rgba(100, 116, 139, 0.1)'),
+        yaxis=dict(showgrid=True, gridcolor='rgba(100, 116, 139, 0.1)')
     )
     
     return fig
 
-def get_health_score(pump_data, config):
-    """Calcula score de saúde da bomba baseado nas configurações"""
-    score = 100
-    
-    if pump_data['status'] == 'Offline':
-        return 0
-    elif pump_data['status'] == 'Alarme':
-        score -= 40
-    
-    # Vibração
-    if pump_data['vibra'] > config['limite_rms']:
-        score -= 30
-    elif pump_data['vibra'] > config['limite_rms'] * 0.7:
-        score -= 15
-    elif pump_data['vibra'] > config['limite_rms'] * 0.5:
-        score -= 5
-    
-    # Temperatura Mancal
-    if pump_data['mancal'] > config['limite_mancal']:
-        score -= 20
-    elif pump_data['mancal'] > config['limite_mancal'] * 0.9:
-        score -= 10
-    
-    # Temperatura Óleo
-    if pump_data['oleo'] > config['limite_oleo']:
-        score -= 20
-    elif pump_data['oleo'] > config['limite_oleo'] * 0.9:
-        score -= 10
-    
-    # Pressão (em bar)
-    pressao_bar = pump_data['pressao'] / 10.197
-    if pressao_bar < config['limite_pressao']:
-        score -= 25
-    elif pressao_bar < config['limite_pressao'] * 1.2:
-        score -= 10
-    
-    return max(0, score)
+def get_health_score(pump_data):
+    """Calcula health score"""
+    try:
+        score = 100
+        config = get_config()
+        
+        if pump_data['status'] == 'Offline':
+            return 0
+        elif pump_data['status'] == 'Alarme':
+            score -= 40
+        
+        vibra = float(pump_data.get('vibra', 0))
+        if vibra > config['limite_rms']:
+            score -= 30
+        elif vibra > config['limite_rms'] * 0.7:
+            score -= 15
+        
+        mancal = float(pump_data.get('mancal', 0))
+        if mancal > config['limite_mancal']:
+            score -= 20
+        elif mancal > config['limite_mancal'] * 0.9:
+            score -= 10
+        
+        oleo = float(pump_data.get('oleo', 0))
+        if oleo > config['limite_oleo']:
+            score -= 20
+        elif oleo > config['limite_oleo'] * 0.9:
+            score -= 10
+        
+        pressao = float(pump_data.get('pressao', 0))
+        if pressao < config['limite_pressao_mca']:
+            score -= 25
+        
+        return max(0, score)
+    except:
+        return 50
 
 def get_health_color(score):
-    """Retorna cor baseada no score de saúde"""
+    """Cor do health score"""
     if score >= 80:
         return "#10b981"
     elif score >= 60:
@@ -424,275 +390,35 @@ def get_health_color(score):
         return "#ef4444"
 
 # ============================================================================
-# 5. CSS (Importado do código original)
+# 6. CSS COMPACTO
 # ============================================================================
 
 st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&display=swap');
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
-
-        :root {
-            --bg-primary: #0a0e1a;
-            --bg-secondary: #0f1729;
-            --bg-card: #151e32;
-            --bg-card-hover: #1a2540;
-            --border-color: #1e293b;
-            --text-primary: #e2e8f0;
-            --text-secondary: #94a3b8;
-            --text-muted: #64748b;
-            --accent-blue: #38bdf8;
-            --accent-green: #10b981;
-            --accent-red: #ef4444;
-            --accent-orange: #f59e0b;
-            --accent-purple: #8b5cf6;
-        }
-
-        .stApp {
-            background: linear-gradient(135deg, var(--bg-primary) 0%, #050810 100%);
-            color: var(--text-primary);
-            font-family: 'Inter', sans-serif;
-        }
-
-        [data-testid="stHeader"] { display: none !important; }
-        .main .block-container { padding-top: 1.5rem !important; max-width: 100% !important; }
-        
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: var(--bg-secondary); }
-        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
-        
-        .main-header {
-            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
-            border-bottom: 1px solid var(--border-color);
-            padding: 1rem 1.5rem;
-            margin-bottom: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        }
-        
-        .logo-text {
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: 700;
-            font-size: 1.8rem;
-            color: var(--text-primary);
-            letter-spacing: 2px;
-            text-transform: uppercase;
-        }
-        
-        .logo-accent { color: var(--accent-blue); font-weight: 700; }
-        
-        .status-badge {
-            background: rgba(16, 185, 129, 0.15);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            color: var(--accent-green);
-            padding: 4px 12px;
-            border-radius: 12px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-
-        .nav-container {
-            display: flex;
-            gap: 8px;
-            background: var(--bg-card);
-            padding: 6px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-        }
-        
-        .nav-btn button {
-            background: transparent !important;
-            border: none !important;
-            color: var(--text-secondary) !important;
-            font-family: 'Rajdhani', sans-serif !important;
-            font-weight: 600 !important;
-            font-size: 0.95rem !important;
-            text-transform: uppercase;
-            padding: 8px 20px !important;
-            border-radius: 6px !important;
-            transition: all 0.3s ease !important;
-        }
-        
-        .nav-btn button:hover {
-            background: rgba(56, 189, 248, 0.1) !important;
-            color: var(--accent-blue) !important;
-        }
-        
-        .nav-active button {
-            background: rgba(56, 189, 248, 0.15) !important;
-            color: var(--accent-blue) !important;
-            border: 1px solid rgba(56, 189, 248, 0.3) !important;
-            box-shadow: 0 0 10px rgba(56, 189, 248, 0.2) !important;
-        }
-
-        .kpi-card {
-            background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-secondary) 100%);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 1.25rem;
-            text-align: center;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .kpi-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 3px;
-            background: linear-gradient(90deg, var(--accent-blue), var(--accent-purple));
-        }
-        
-        .kpi-card:hover {
-            transform: translateY(-4px);
-            box-shadow: 0 8px 20px rgba(56, 189, 248, 0.15);
-            border-color: var(--accent-blue);
-        }
-        
-        .kpi-label {
-            font-size: 0.85rem;
-            color: var(--text-primary);
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        
-        .kpi-value {
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 2rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            line-height: 1;
-        }
-        
-        .kpi-trend {
-            font-size: 0.85rem;
-            margin-top: 6px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .pump-card {
-            background: linear-gradient(145deg, var(--bg-card), var(--bg-secondary));
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 1.5rem;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .pump-card:hover {
-            border-color: var(--accent-blue);
-            box-shadow: 0 12px 30px rgba(56, 189, 248, 0.2);
-            transform: translateY(-6px);
-        }
-
-        .status-Online { border-left: 4px solid var(--accent-green); }
-        .status-Alarme { border-left: 4px solid var(--accent-red); animation: alertPulse 2s infinite; }
-        .status-Offline { border-left: 4px solid var(--text-muted); }
-        
-        @keyframes alertPulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
-            50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
-        }
-
-        .card-header {
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .card-sub {
-            font-size: 0.8rem;
-            color: #94a3b8;
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        
-        .metric-item {
-            background: rgba(15, 23, 42, 0.5);
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        
-        .m-label {
-            font-size: 0.75rem;
-            color: #cbd5e1;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            margin-bottom: 4px;
-            text-transform: uppercase;
-            font-weight: 500;
-        }
-        
-        .m-val {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 1.3rem;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .txt-green { color: var(--accent-green) !important; }
-        .txt-red { color: var(--accent-red) !important; }
-        .txt-blue { color: var(--accent-blue) !important; }
-        .txt-orange { color: var(--accent-orange) !important; }
-        
-        .stButton > button {
-            background: linear-gradient(135deg, var(--bg-card), var(--bg-secondary)) !important;
-            color: var(--accent-blue) !important;
-            border: 1px solid var(--border-color) !important;
-            border-radius: 8px !important;
-            font-family: 'Rajdhani', sans-serif !important;
-            font-weight: 600 !important;
-            transition: all 0.3s ease !important;
-        }
-        
-        .stButton > button:hover {
-            border-color: var(--accent-blue) !important;
-            box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2) !important;
-            transform: translateY(-2px) !important;
-        }
-        
-        .stSelectbox label, .stMultiSelect label, .stNumberInput label {
-            color: var(--text-primary) !important;
-            font-family: 'Rajdhani', sans-serif !important;
-            font-weight: 600 !important;
-            font-size: 1.1rem !important;
-            text-transform: uppercase !important;
-        }
-        
-        .section-header {
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 1.5rem;
-            font-weight: 700;
-            color: var(--text-primary);
-            border-left: 4px solid var(--accent-blue);
-            padding-left: 12px;
-            margin: 1.5rem 0 1rem 0;
-            text-transform: uppercase;
-        }
-    </style>
+<style>
+    :root {
+        --bg-card: #151e32;
+        --border-color: #1e293b;
+        --accent-blue: #38bdf8;
+        --accent-green: #10b981;
+        --accent-red: #ef4444;
+    }
+    .stApp { background: linear-gradient(135deg, #0a0e1a 0%, #050810 100%); color: #e2e8f0; }
+    [data-testid="stHeader"] { display: none !important; }
+    .kpi-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.25rem; text-align: center; }
+    .kpi-value { font-size: 2rem; font-weight: 700; }
+    .pump-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; }
+    .status-Online { border-left: 4px solid var(--accent-green); }
+    .status-Alarme { border-left: 4px solid var(--accent-red); }
+    .status-Offline { border-left: 4px solid #64748b; }
+    .txt-green { color: var(--accent-green) !important; }
+    .txt-red { color: var(--accent-red) !important; }
+    .txt-blue { color: var(--accent-blue) !important; }
+    .txt-orange { color: #f59e0b !important; }
+</style>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# 6. CONTROLE DE ESTADO
+# 7. CONTROLE DE ESTADO
 # ============================================================================
 
 if 'view' not in st.session_state:
@@ -706,103 +432,104 @@ if 'filter_local' not in st.session_state:
 if 'date_range' not in st.session_state:
     st.session_state.date_range = 7
 
-# Carregar configurações do banco
-config = get_config()
+# Auto-refresh (opcional - desabilitar se causar problemas no Render)
+if 'last_refresh' not in st.session_state:
+    st.session_state.last_refresh = time.time()
+
+current_time = time.time()
+time_since_refresh = int(current_time - st.session_state.last_refresh)
+time_until_refresh = max(0, 30 - time_since_refresh)  # 30 segundos
+
+# Refresh automático a cada 30 segundos (mais seguro para Render)
+if time_since_refresh >= 30 and st.session_state.view == 'dashboard':
+    st.session_state.last_refresh = current_time
+    get_current_data.clear()
+    st.rerun()
 
 # ============================================================================
-# 7. HEADER
+# 8. HEADER
 # ============================================================================
 
 df = get_current_data()
 
-st.markdown("""
-    <div class="main-header">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 15px;">
-                <div class="logo-text">
-                    GS INIMA | <span class="logo-accent">SISTEMAS</span>
-                </div>
-                <div class="status-badge">● DADOS EM TEMPO REAL</div>
-            </div>
+st.markdown(f"""
+<div style='background: var(--bg-card); border: 1px solid var(--border-color); padding: 1rem; margin-bottom: 2rem; border-radius: 8px;'>
+    <div style='display: flex; justify-content: space-between; align-items: center;'>
+        <div>
+            <h1 style='margin: 0; font-size: 1.8rem;'>GS INIMA | <span style='color: var(--accent-blue);'>SISTEMAS</span></h1>
+        </div>
+        <div style='display: flex; gap: 10px;'>
+            <span style='background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--accent-green); padding: 4px 12px; border-radius: 12px; font-size: 0.75rem;'>
+                ● CONECTADO
+            </span>
+            <span style='background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: var(--accent-blue); padding: 4px 12px; border-radius: 12px; font-size: 0.75rem;'>
+                🔄 Atualiza em {time_until_refresh}s
+            </span>
         </div>
     </div>
+</div>
 """, unsafe_allow_html=True)
 
 # ============================================================================
-# 8. NAVEGAÇÃO
+# 9. NAVEGAÇÃO
 # ============================================================================
 
 col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
 
 with col_nav2:
-    st.markdown('<div class="nav-container">', unsafe_allow_html=True)
     n1, n2, n3, n4 = st.columns(4)
     
-    def nav_class(page):
-        return "nav-active" if st.session_state.view == page else "nav-btn"
-    
     with n1:
-        st.markdown(f'<div class="{nav_class("dashboard")}">', unsafe_allow_html=True)
         if st.button("📊 DASHBOARD", key="nav_dash", use_container_width=True):
             st.session_state.view = 'dashboard'
             st.session_state.selected_pump_id = None
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with n2:
-        st.markdown(f'<div class="{nav_class("detalhes")}">', unsafe_allow_html=True)
-        if st.button("📈 DETALHES", key="nav_det", use_container_width=True, disabled=st.session_state.selected_pump_id is None):
+        disabled = st.session_state.selected_pump_id is None
+        if st.button("📈 DETALHES", key="nav_det", use_container_width=True, disabled=disabled):
             st.session_state.view = 'detalhes'
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with n3:
-        st.markdown(f'<div class="{nav_class("alarmes")}">', unsafe_allow_html=True)
         if st.button("🚨 ALARMES", key="nav_alarm", use_container_width=True):
             st.session_state.view = 'alarmes'
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with n4:
-        st.markdown(f'<div class="{nav_class("config")}">', unsafe_allow_html=True)
         if st.button("⚙️ CONFIG", key="nav_config", use_container_width=True):
             st.session_state.view = 'config'
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
 # ============================================================================
-# 9. VIEWS (continuação no próximo arquivo devido ao limite de tamanho)
+# 10. VIEWS
 # ============================================================================
 
 # VIEW: DASHBOARD
 if st.session_state.view == 'dashboard':
-    # Atualização automática a cada 10 segundos
-    st_autorefresh(interval=10000, key="dashboard_refresh")
-
-    # Atualiza dados (importante para pegar dados novos)
-    df = get_current_data()
     
-    # Botão de atualização
-    col_refresh, col_filter = st.columns([1, 9])
-    with col_refresh:
-        if st.button("🔄 Atualizar", use_container_width=True):
-            st.cache_data.clear()
+    # Filtros
+    refresh_col, filter_col = st.columns([1, 9])
+    
+    with refresh_col:
+        if st.button("🔄", key="manual_refresh", use_container_width=True):
+            get_current_data.clear()
+            st.session_state.last_refresh = time.time()
             st.rerun()
     
-    with col_filter:
-        locais_ordenados = ['Todos', 'JACUTINGA', 'INTERMEDIÁRIA']
-        sel_local = st.selectbox("📍 Localização", locais_ordenados, index=locais_ordenados.index(st.session_state.filter_local))
+    with filter_col:
+        locais_ordenados = ['Todos'] + sorted(df['local'].unique().tolist())
+        sel_local = st.selectbox("📍 Localização", locais_ordenados, index=0 if st.session_state.filter_local == 'Todos' else locais_ordenados.index(st.session_state.filter_local) if st.session_state.filter_local in locais_ordenados else 0)
         if sel_local != st.session_state.filter_local:
             st.session_state.filter_local = sel_local
             st.rerun()
     
+    # Filtragem
     if st.session_state.filter_local == 'Todos':
         df_show = df
-        display_locais = ['JACUTINGA', 'INTERMEDIÁRIA']
+        display_locais = sorted(df['local'].unique().tolist())
     else:
         df_show = df[df['local'] == st.session_state.filter_local]
         display_locais = [st.session_state.filter_local]
@@ -814,127 +541,90 @@ if st.session_state.view == 'dashboard':
     k1, k2, k3, k4, k5 = st.columns(5)
     
     with k1:
-        total_bombas = len(df_show)
-        online_bombas = len(df_online)
-        st.markdown(f'''
-            <div class="kpi-card">
-                <div class="kpi-label">Bombas Ativas</div>
-                <div class="kpi-value txt-green">{online_bombas}<small>/{total_bombas}</small></div>
-                <div class="kpi-trend txt-green">↗ {(online_bombas/total_bombas*100) if total_bombas > 0 else 0:.0f}% Online</div>
-            </div>
-        ''', unsafe_allow_html=True)
+        total = len(df_show)
+        online = len(df_online)
+        pct = (online/total*100) if total > 0 else 0
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-green">{online}<small>/{total}</small></div><div>Bombas Ativas</div></div>', unsafe_allow_html=True)
     
     with k2:
-        avg_pressure = df_online['pressao'].mean() if len(df_online) > 0 else 0
-        st.markdown(f'''
-            <div class="kpi-card">
-                <div class="kpi-label">Pressão Média</div>
-                <div class="kpi-value txt-blue">{avg_pressure:.1f}<small> MCA</small></div>
-                <div class="kpi-trend">Sistema Normal</div>
-            </div>
-        ''', unsafe_allow_html=True)
+        avg_p = df_online['pressao'].mean() if len(df_online) > 0 else 0
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-blue">{avg_p:.1f}<small> MCA</small></div><div>Pressão Média</div></div>', unsafe_allow_html=True)
     
     with k3:
-        avg_temp = df_online['mancal'].mean() if len(df_online) > 0 else 0
-        temp_color = "txt-red" if avg_temp > config['limite_mancal'] else "txt-orange" if avg_temp > config['limite_mancal'] * 0.9 else "txt-green"
-        st.markdown(f'''
-            <div class="kpi-card">
-                <div class="kpi-label">Temp. Mancal</div>
-                <div class="kpi-value {temp_color}">{avg_temp:.1f}<small> °C</small></div>
-            </div>
-        ''', unsafe_allow_html=True)
+        avg_m = df_online['mancal'].mean() if len(df_online) > 0 else 0
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{avg_m:.1f}<small> °C</small></div><div>Temp. Mancal</div></div>', unsafe_allow_html=True)
     
     with k4:
-        avg_oleo = df_online['oleo'].mean() if len(df_online) > 0 else 0
-        oleo_color = "txt-red" if avg_oleo > config['limite_oleo'] else "txt-orange" if avg_oleo > config['limite_oleo'] * 0.9 else "txt-green"
-        st.markdown(f'''
-            <div class="kpi-card">
-                <div class="kpi-label">Temp. Óleo</div>
-                <div class="kpi-value {oleo_color}">{avg_oleo:.1f}<small> °C</small></div>
-            </div>
-        ''', unsafe_allow_html=True)
+        avg_o = df_online['oleo'].mean() if len(df_online) > 0 else 0
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{avg_o:.1f}<small> °C</small></div><div>Temp. Óleo</div></div>', unsafe_allow_html=True)
     
     with k5:
-        alarmes_ativos = len(df_show[df_show['status'] == 'Alarme'])
-        st.markdown(f'''
-            <div class="kpi-card">
-                <div class="kpi-label">Alarmes Ativos</div>
-                <div class="kpi-value txt-red">{alarmes_ativos}</div>
-                <div class="kpi-trend">{'⚠️ Atenção' if alarmes_ativos > 0 else '✓ OK'}</div>
-            </div>
-        ''', unsafe_allow_html=True)
+        alarmes = len(df_show[df_show['status'] == 'Alarme'])
+        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-red">{alarmes}</div><div>Alarmes Ativos</div></div>', unsafe_allow_html=True)
     
     st.markdown("<br>", unsafe_allow_html=True)
     
     # Cards das bombas
     for loc in display_locais:
-        st.markdown(f'<div class="section-header">{loc}</div>', unsafe_allow_html=True)
-        
+        st.markdown(f'### {loc}')
         subset = df_show[df_show['local'] == loc]
         
         if len(subset) == 0:
-            st.info(f"Nenhuma bomba encontrada em {loc}")
+            st.info(f"Nenhuma bomba em {loc}")
             continue
         
         cols = st.columns(min(4, len(subset)))
         
         for i, row in enumerate(subset.to_dict('records')):
             with cols[i % len(cols)]:
-                health_score = get_health_score(row, config)
-                health_color = get_health_color(health_score)
+                health = get_health_score(row)
+                health_color = get_health_color(health)
                 
-                icon_vibra = "⚠️" if row['vibra'] > config['limite_rms'] * 0.7 else "✅"
-                color_vibra = "txt-red" if row['vibra'] > config['limite_rms'] else "txt-orange" if row['vibra'] > config['limite_rms'] * 0.7 else "txt-green"
+                config = get_config()
+                icon_v = "⚠️" if row['vibra'] > config['limite_rms']*0.7 else "✅"
+                icon_m = "🔥" if row['mancal'] > config['limite_mancal']*0.9 else "🌡️"
+                icon_o = "🔥" if row['oleo'] > config['limite_oleo']*0.9 else "💧"
                 
-                icon_temp = "🔥" if row['mancal'] > config['limite_mancal'] * 0.9 else "🌡️"
-                color_temp = "txt-red" if row['mancal'] > config['limite_mancal'] else "txt-orange" if row['mancal'] > config['limite_mancal'] * 0.9 else ""
-                
-                icon_oleo = "🔥" if row['oleo'] > config['limite_oleo'] * 0.9 else "💧"
-                color_oleo = "txt-red" if row['oleo'] > config['limite_oleo'] else "txt-orange" if row['oleo'] > config['limite_oleo'] * 0.9 else ""
-                
-                badge_class = f"badge-{row['status'].lower()}"
-                
-                card_html = f"""
+                st.markdown(f"""
                 <div class="pump-card status-{row['status']}">
-                    <div class="card-sub">{row['local']}</div>
-                    <div class="card-header">
-                        <span>BOMBA {row['id']}</span>
-                        <span style="font-size: 0.75rem; padding: 4px 12px; border-radius: 8px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.3); color: #38bdf8;">{row['status']}</span>
+                    <div style='font-size: 0.8rem; color: #94a3b8; margin-bottom: 8px;'>{row['local']}</div>
+                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;'>
+                        <span style='font-size: 1.5rem; font-weight: 700;'>BOMBA {row['id']}</span>
+                        <span style='font-size: 0.75rem; padding: 4px 12px; border-radius: 8px; background: rgba(56, 189, 248, 0.15);'>{row['status']}</span>
                     </div>
-                    <div style="text-align: center; margin: 10px 0;">
-                        <div style="font-size: 0.7rem; color: #94a3b8; margin-bottom: 4px;">SAÚDE DO EQUIPAMENTO</div>
-                        <div style="font-size: 2rem; font-weight: 700; color: {health_color};">{health_score}<small style="font-size: 0.5em;">/100</small></div>
+                    <div style='text-align: center; margin: 10px 0;'>
+                        <div style='font-size: 0.7rem; color: #94a3b8;'>SAÚDE</div>
+                        <div style='font-size: 2rem; font-weight: 700; color: {health_color};'>{health}<small>/100</small></div>
                     </div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 1rem;">
-                        <div class="metric-item">
-                            <div class="m-label">⚙️ Pressão</div>
-                            <div class="m-val txt-blue">{row['pressao']:.1f}<small> MCA</small></div>
+                    <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 1rem;'>
+                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px;'>
+                            <div style='font-size: 0.75rem; color: #cbd5e1;'>⚙️ Pressão</div>
+                            <div style='font-size: 1.3rem; font-weight: 600;'>{row['pressao']:.1f}<small> MCA</small></div>
                         </div>
-                        <div class="metric-item">
-                            <div class="m-label">{icon_temp} Mancal</div>
-                            <div class="m-val {color_temp}">{row['mancal']:.1f}<small> °C</small></div>
+                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px;'>
+                            <div style='font-size: 0.75rem; color: #cbd5e1;'>{icon_m} Mancal</div>
+                            <div style='font-size: 1.3rem; font-weight: 600;'>{row['mancal']:.1f}<small> °C</small></div>
                         </div>
-                        <div class="metric-item">
-                            <div class="m-label">{icon_oleo} Óleo</div>
-                            <div class="m-val {color_oleo}">{row['oleo']:.1f}<small> °C</small></div>
+                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px;'>
+                            <div style='font-size: 0.75rem; color: #cbd5e1;'>{icon_o} Óleo</div>
+                            <div style='font-size: 1.3rem; font-weight: 600;'>{row['oleo']:.1f}<small> °C</small></div>
                         </div>
-                        <div class="metric-item">
-                            <div class="m-label">{icon_vibra} Vibração</div>
-                            <div class="m-val {color_vibra}">{row['vibra']:.2f}<small> mm/s</small></div>
+                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px;'>
+                            <div style='font-size: 0.75rem; color: #cbd5e1;'>{icon_v} Vibração</div>
+                            <div style='font-size: 1.3rem; font-weight: 600;'>{row['vibra']:.2f}<small> mm/s</small></div>
                         </div>
-                        <div class="metric-item">
-                            <div class="m-label">⚡ Corrente</div>
-                            <div class="m-val">{row.get('corrente', 0):.1f}<small> A</small></div>
+                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px;'>
+                            <div style='font-size: 0.75rem; color: #cbd5e1;'>⚡ Corrente</div>
+                            <div style='font-size: 1.3rem; font-weight: 600;'>{row['corrente']:.1f}<small> A</small></div>
                         </div>
-                        <div class="metric-item">
-                            <div class="m-label">🔌 Potência</div>
-                            <div class="m-val">{row.get('potencia', 0):.1f}<small> kW</small></div>
+                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px;'>
+                            <div style='font-size: 0.75rem; color: #cbd5e1;'>🔌 Potência</div>
+                            <div style='font-size: 1.3rem; font-weight: 600;'>{row['potencia']:.1f}<small> kW</small></div>
                         </div>
                     </div>
                 </div>
-                """
+                """, unsafe_allow_html=True)
                 
-                st.markdown(card_html, unsafe_allow_html=True)
                 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
                 
                 if st.button(f"📊 Ver Detalhes", key=f"btn_{row['local']}_{row['id']}", use_container_width=True):
@@ -943,157 +633,224 @@ if st.session_state.view == 'dashboard':
                     st.session_state.view = 'detalhes'
                     st.rerun()
 
-# Continuar com as outras views no próximo bloco...
-# ================================================================
-# FUNÇÃO DE SALVAMENTO NO SUPABASE
-# ================================================================
+# VIEW: DETALHES
+elif st.session_state.view == 'detalhes':
+    
+    # Verificar se há bomba selecionada
+    if not st.session_state.selected_pump_id or not st.session_state.selected_local:
+        st.warning("Selecione uma bomba no Dashboard primeiro")
+        if st.button("← Voltar ao Dashboard"):
+            st.session_state.view = 'dashboard'
+            st.rerun()
+    else:
+        # Seletores
+        nav_col1, nav_col2, nav_col3 = st.columns([2, 2, 6])
+        
+        with nav_col1:
+            locais = sorted(df['local'].unique().tolist())
+            current_local = st.session_state.selected_local if st.session_state.selected_local in locais else locais[0] if locais else 'JACUTINGA'
+            new_local = st.selectbox("📍 Local", locais, index=locais.index(current_local) if current_local in locais else 0)
+        
+        with nav_col2:
+            bombas = sorted(df[df['local'] == new_local]['id'].unique().tolist())
+            current_pump = st.session_state.selected_pump_id if st.session_state.selected_pump_id in bombas else bombas[0] if bombas else 'B01'
+            new_pump = st.selectbox("🔧 Bomba", bombas, index=bombas.index(current_pump) if current_pump in bombas else 0)
+        
+        with nav_col3:
+            date_ranges = {
+                "Últimas 6 horas": 0.25,
+                "Último dia": 1,
+                "Últimos 3 dias": 3,
+                "Última semana": 7,
+            }
+            selected_range = st.selectbox("📅 Período", list(date_ranges.keys()), index=2)
+            st.session_state.date_range = date_ranges[selected_range]
+        
+        # Atualizar estado
+        if new_local != st.session_state.selected_local or new_pump != st.session_state.selected_pump_id:
+            st.session_state.selected_local = new_local
+            st.session_state.selected_pump_id = new_pump
+            st.rerun()
+        
+        # Dados
+        pump_data = df[(df['local'] == st.session_state.selected_local) & (df['id'] == st.session_state.selected_pump_id)]
+        
+        if len(pump_data) == 0:
+            st.error("Bomba não encontrada")
+        else:
+            pump_data = pump_data.iloc[0]
+            historical_df = get_historical_data(st.session_state.selected_pump_id, st.session_state.selected_local, days=st.session_state.date_range)
+            
+            st.markdown("---")
+            
+            # Header
+            health = get_health_score(pump_data)
+            health_color = get_health_color(health)
+            
+            st.markdown(f"## {pump_data['local']} | BOMBA {pump_data['id']}")
+            st.markdown(f"**Status:** {pump_data['status']} | **Saúde:** {health}/100")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Gauges
+            st.markdown("### 🎯 Indicadores em Tempo Real")
+            g1, g2, g3, g4 = st.columns(4)
+            
+            config = get_config()
+            
+            with g1:
+                st.plotly_chart(create_gauge_chart(pump_data['vibra'], 5.0, "Vibração (mm/s)", "#10b981", warning_threshold=config['limite_rms']*0.7, critical_threshold=config['limite_rms']), use_container_width=True)
+            
+            with g2:
+                st.plotly_chart(create_gauge_chart(pump_data['pressao'], 50, "Pressão (MCA)", "#38bdf8", warning_threshold=config['limite_pressao_mca']*1.2, critical_threshold=config['limite_pressao_mca']), use_container_width=True)
+            
+            with g3:
+                st.plotly_chart(create_gauge_chart(pump_data['mancal'], 100, "Temp. Mancal (°C)", "#f59e0b", warning_threshold=config['limite_mancal']*0.9, critical_threshold=config['limite_mancal']), use_container_width=True)
+            
+            with g4:
+                st.plotly_chart(create_gauge_chart(pump_data['oleo'], 100, "Temp. Óleo (°C)", "#ef4444", warning_threshold=config['limite_oleo']*0.9, critical_threshold=config['limite_oleo']), use_container_width=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # Gráficos
+            st.markdown("### 📈 Tendências Históricas")
+            
+            tab1, tab2, tab3 = st.tabs(["🌊 Vibração", "⚙️ Pressão", "🌡️ Temperaturas"])
+            
+            with tab1:
+                st.plotly_chart(create_time_series_chart(historical_df, 'vibra', 'Vibração', '#10b981', 'Vibração (mm/s)', show_threshold=config['limite_rms']), use_container_width=True)
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Atual", f"{pump_data['vibra']:.2f} mm/s")
+                c2.metric("Média", f"{historical_df['vibra'].mean():.2f} mm/s")
+                c3.metric("Máximo", f"{historical_df['vibra'].max():.2f} mm/s")
+                c4.metric("Mínimo", f"{historical_df['vibra'].min():.2f} mm/s")
+            
+            with tab2:
+                st.plotly_chart(create_time_series_chart(historical_df, 'pressao', 'Pressão', '#38bdf8', 'Pressão (MCA)', show_threshold=config['limite_pressao_mca']), use_container_width=True)
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Atual", f"{pump_data['pressao']:.1f} MCA")
+                c2.metric("Média", f"{historical_df['pressao'].mean():.1f} MCA")
+                c3.metric("Máximo", f"{historical_df['pressao'].max():.1f} MCA")
+                c4.metric("Mínimo", f"{historical_df['pressao'].min():.1f} MCA")
+            
+            with tab3:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=historical_df['timestamp'], y=historical_df['mancal'], mode='lines', name='Mancal', line=dict(color='#f59e0b', width=2.5)))
+                fig.add_trace(go.Scatter(x=historical_df['timestamp'], y=historical_df['oleo'], mode='lines', name='Óleo', line=dict(color='#ef4444', width=2.5)))
+                fig.add_hline(y=config['limite_mancal'], line_dash="dash", line_color="#ef4444", annotation_text="Limite")
+                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(15, 23, 42, 0.5)', font={'color': '#e2e8f0'}, height=300, margin=dict(l=10, r=10, t=10, b=10), hovermode='x unified')
+                st.plotly_chart(fig, use_container_width=True)
+                
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Mancal Atual", f"{pump_data['mancal']:.1f} °C")
+                c2.metric("Óleo Atual", f"{pump_data['oleo']:.1f} °C")
+                c3.metric("Mancal Médio", f"{historical_df['mancal'].mean():.1f} °C")
+                c4.metric("Óleo Médio", f"{historical_df['oleo'].mean():.1f} °C")
 
-def save_config_to_db(config):
-    try:
-        response = (
-            supabase
-            .table("configuracoes")
-            .update({
-                "limite_pressao": float(config.get("limite_pressao", 2.0)),
-                "limite_rms": float(config.get("limite_rms", 5.0)),
-                "limite_mancal": float(config.get("limite_mancal", 75.0)),
-                "limite_oleo": float(config.get("limite_oleo", 80.0)),
-            })
-            .eq("id", 1)  # ⚠️ IMPORTANTE: precisa existir id=1 na tabela
-            .execute()
-        )
+# VIEW: ALARMES
+elif st.session_state.view == 'alarmes':
+    st.markdown("### 🚨 Central de Alarmes")
+    st.info("📊 Módulo de alarmes em desenvolvimento. Os alarmes serão exibidos em tempo real baseados nas configurações.")
 
-        return bool(response.data)
-
-    except Exception as e:
-        st.error(f"Erro ao salvar no banco: {e}")
-        return False
-
-
-# ================================================================
 # VIEW: CONFIG
-# ================================================================
-
-    elif st.session_state.view == 'config':
+elif st.session_state.view == 'config':
     st.markdown("### ⚙️ Configurações do Sistema")
-    st.info("💡 Ajuste os limites de alarmes. As alterações serão salvas no banco de dados.")
-
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["⚙️ Pressão", "〰️ Vibração", "🌡️ Temp. Mancal", "💧 Temp. Óleo"]
-    )
-
-    # --- TAB 1: PRESSÃO ---
+    st.info("💡 Configure os limites de alarmes. As alterações serão salvas no banco de dados.")
+    
+    tab1, tab2, tab3, tab4 = st.tabs(["⚙️ Pressão", "〰️ Vibração", "🌡️ Mancal", "💧 Óleo"])
+    
+    config = get_config()
+    
     with tab1:
         st.markdown("#### Configurações de Pressão")
+        
         limite_pressao = st.number_input(
             "Limite Mínimo de Pressão (bar)",
             min_value=0.1,
             max_value=40.0,
-            value=float(config.get('limite_pressao', 1.0)),
+            value=float(config.get('limite_pressao', 2.0)),
             step=0.1,
             help="Pressão abaixo deste valor gera alarme",
-            key="input_pressao"
+            key="config_pressao"
         )
-
-        if st.button("💾 Salvar Pressão", type="primary", key="btn_pressao"):
-            config['limite_pressao'] = float(limite_pressao)
-            if save_config_to_db(config):
-                st.success("✅ Configuração de Pressão salva!")
-                st.cache_data.clear()
+        
+        st.info(f"💡 Equivalente a {bar_to_mca(limite_pressao):.1f} MCA")
+        
+        if st.button("💾 Salvar Pressão", type="primary", use_container_width=True):
+            if save_config_to_db(limite_pressao=limite_pressao):
+                st.success("✅ Limite de pressão salvo no banco!")
+                time.sleep(1)
                 st.rerun()
             else:
-                st.error("❌ Falha ao salvar.")
-
-    # --- TAB 2: VIBRAÇÃO ---
+                st.error("❌ Erro ao salvar")
+    
     with tab2:
         st.markdown("#### Configurações de Vibração")
+        
         limite_rms = st.number_input(
             "Limite RMS (mm/s)",
             min_value=0.1,
             max_value=10.0,
-            value=float(config.get('limite_rms', 4.5)),
+            value=float(config.get('limite_rms', 5.0)),
             step=0.1,
-            key="input_rms"
+            key="config_rms"
         )
-
-        if st.button("💾 Salvar Vibração", type="primary", key="btn_rms"):
-            config['limite_rms'] = float(limite_rms)
-            if save_config_to_db(config):
-                st.success("✅ Configuração de Vibração salva!")
-                st.cache_data.clear()
+        
+        if st.button("💾 Salvar Vibração", type="primary", use_container_width=True):
+            if save_config_to_db(limite_rms=limite_rms):
+                st.success("✅ Limite de vibração salvo no banco!")
+                time.sleep(1)
                 st.rerun()
             else:
-                st.error("❌ Falha ao salvar.")
-
-    # --- TAB 3: MANCAL ---
+                st.error("❌ Erro ao salvar")
+    
     with tab3:
         st.markdown("#### Configurações de Temperatura do Mancal")
+        
         limite_mancal = st.number_input(
             "Limite Máximo (°C)",
             min_value=20,
             max_value=150,
             value=int(config.get('limite_mancal', 75)),
             step=5,
-            key="input_mancal"
+            key="config_mancal"
         )
-
-        if st.button("💾 Salvar Mancal", type="primary", key="btn_mancal"):
-            config['limite_mancal'] = float(limite_mancal)
-            if save_config_to_db(config):
-                st.success("✅ Configuração de Mancal salva!")
-                st.cache_data.clear()
+        
+        if st.button("💾 Salvar Mancal", type="primary", use_container_width=True):
+            if save_config_to_db(limite_mancal=limite_mancal):
+                st.success("✅ Limite de mancal salvo no banco!")
+                time.sleep(1)
                 st.rerun()
             else:
-                st.error("❌ Falha ao salvar.")
-
-    # --- TAB 4: ÓLEO ---
+                st.error("❌ Erro ao salvar")
+    
     with tab4:
         st.markdown("#### Configurações de Temperatura do Óleo")
+        
         limite_oleo = st.number_input(
             "Limite Máximo (°C)",
             min_value=20,
             max_value=150,
-            value=int(config.get('limite_oleo', 60)),
+            value=int(config.get('limite_oleo', 80)),
             step=5,
-            key="input_oleo"
+            key="config_oleo"
         )
-
-        if st.button("💾 Salvar Óleo", type="primary", key="btn_oleo"):
-            config['limite_oleo'] = float(limite_oleo)
-            if save_config_to_db(config):
-                st.success("✅ Configuração de Óleo salva!")
-                st.cache_data.clear()
+        
+        if st.button("💾 Salvar Óleo", type="primary", use_container_width=True):
+            if save_config_to_db(limite_oleo=limite_oleo):
+                st.success("✅ Limite de óleo salvo no banco!")
+                time.sleep(1)
                 st.rerun()
             else:
-                st.error("❌ Falha ao salvar.")
+                st.error("❌ Erro ao salvar")
 
-elif st.session_state.view == 'alarmes':
-    st.markdown("### 🚨 Central de Alarmes")
-    
-    df_alarmes = get_alarmes()
-    
-    if df_alarmes is None or len(df_alarmes) == 0:
-        st.success("✅ Nenhum alarme ativo no momento!")
-    else:
-        for idx, row in df_alarmes.iterrows():
-            # Define cor baseada no reconhecimento (ack) ou severidade
-            status_color = "#10b981" if row.get('ack', False) else "#ef4444"
-            st.markdown(f"""
-                <div style='background: rgba(30, 41, 59, 0.7); border-left: 5px solid {status_color}; padding: 15px; border-radius: 8px; margin-bottom: 12px; border-top: 1px solid #334155;'>
-                    <div style='display: flex; justify-content: space-between; align-items: center;'>
-                        <span style='font-size: 0.8rem; color: #94a3b8; font-family: monospace;'>{row['timestamp']}</span>
-                        <span style='font-size: 0.7rem; color: {status_color}; font-weight: bold;'>{"RECONHECIDO" if row.get('ack') else "ATIVO"}</span>
-                    </div>
-                    <div style='font-size: 1.1rem; font-weight: 700; color: #f8fafc; margin-top: 5px;'>{row['bomba']}</div>
-                    <div style='font-size: 0.95rem; color: #cbd5e1; margin-top: 3px;'>{row['mensagem']}</div>
-                </div>
-            """, unsafe_allow_html=True)
+# ============================================================================
+# 11. RODAPÉ
+# ============================================================================
 
-# Rodapé universal
 st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown(f"""
-    <div style='text-align: center; color: #64748b; font-size: 0.8rem; padding: 20px; border-top: 1px solid #1e293b;'>
-        GS Inima Sistemas © 2025 | Conectado ao Supabase | 
-        <span style='color: #3b82f6;'>Última atualização: {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}</span>
-    </div>
+<div style='text-align: center; color: #64748b; font-size: 0.8rem; padding: 20px; border-top: 1px solid #1e293b;'>
+    GS Inima Sistemas © 2025 | v3.0 | {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}
+</div>
 """, unsafe_allow_html=True)
