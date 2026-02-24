@@ -942,78 +942,82 @@ if st.session_state.view == 'dashboard':
             with cols[i % len(cols)]:
                 health = get_health_score(row)
                 health_color = get_health_color(health)
-                
+
                 config = get_config()
-                icon_v = "⚠️" if row['vibra'] > config['limite_rms']*0.7 else "✅"
-                icon_m = "🔥" if row['mancal'] > config['limite_mancal']*0.9 else "🌡️"
-                icon_o = "🔥" if row['oleo'] > config['limite_oleo']*0.9 else "💧"
-                icon_c = "⚠️" if row['corrente'] > config['limite_corrente']*0.9 else "⚡"
-                
-                st.markdown(f"""
-                <div class="modern-card status-{row['status']}">
-                    <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;'>
-                        <div>
-                            <div style='font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px;'>{row['local']}</div>
-                            <div style='font-size: 1.5rem; font-weight: 800;'>BOMBA {row['id']}</div>
-                        </div>
-                        <div style='text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>SAÚDE</div>
-                            <div style='font-size: 2rem; font-weight: 800; color: {health_color};'>{health}</div>
-                        </div>
-                    </div>
-                    
-                    <div style='background: rgba(15, 23, 42, 0.5); padding: 8px 12px; border-radius: 8px; margin-bottom: 1rem; text-align: center;'>
-                        <span style='font-size: 0.85rem; font-weight: 600; color: {"var(--accent-green)" if row["status"]=="Online" else "var(--accent-red)" if row["status"]=="Alarme" else "#64748b"};'>
-                            ● {row['status'].upper()}
-                        </span>
-                    </div>
-                    
-                    <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 1rem;'>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>⚙️ Pressão</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['pressao']:.1f}<small style='font-size: 0.7em;'> MCA</small></div>
-                        </div>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>{icon_m} Mancal</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['mancal']:.1f}<small style='font-size: 0.7em;'> °C</small></div>
-                        </div>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>{icon_o} Óleo</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['oleo']:.1f}<small style='font-size: 0.7em;'> °C</small></div>
-                        </div>
-                    </div>
-                    
-                    <div style='display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 1rem;'>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>{icon_v} Vibração</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['vibra']:.2f}<small style='font-size: 0.7em;'> mm/s</small></div>
-                        </div>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>{icon_c} Corrente</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['corrente']:.1f}<small style='font-size: 0.7em;'> A</small></div>
-                        </div>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>🔌 Potência</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['potencia']:.1f}<small style='font-size: 0.7em;'> kW</small></div>
-                        </div>
-                    </div>
-                    
-                    <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 10px;'>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>🔋 V. Motor</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['tensao_motor']:.0f}<small style='font-size: 0.7em;'> V</small></div>
-                        </div>
-                        <div style='background: rgba(15, 23, 42, 0.5); padding: 10px; border-radius: 8px; text-align: center;'>
-                            <div style='font-size: 0.7rem; color: var(--text-secondary);'>⚡ V. Rede</div>
-                            <div style='font-size: 1.1rem; font-weight: 700;'>{row['tensao_rede']:.0f}<small style='font-size: 0.7em;'> V</small></div>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-                
-                if st.button(f"📊 Ver Detalhes", key=f"btn_{row['local']}_{row['id']}", use_container_width=True):
+                icon_v = "⚠️" if row['vibra'] > config['limite_rms'] * 0.7 else "✅"
+                icon_m = "🔥" if row['mancal'] > config['limite_mancal'] * 0.9 else "🌡️"
+                icon_o = "🔥" if row['oleo'] > config['limite_oleo'] * 0.9 else "💧"
+                icon_c = "⚠️" if row['corrente'] > config['limite_corrente'] * 0.9 else "⚡"
+
+                # Pré-computar variáveis para evitar expressões aninhadas dentro do f-string
+                # (expressões como {"a" if x else "b"} dentro de f-strings causam falha silenciosa no Streamlit)
+                status_color = (
+                    "var(--accent-green)" if row["status"] == "Online"
+                    else "var(--accent-red)" if row["status"] == "Alarme"
+                    else "#64748b"
+                )
+                status_label = row["status"].upper()
+                pump_local   = row["local"]
+                pump_id      = row["id"]
+                pump_status  = row["status"]
+                pressao_val  = f"{row['pressao']:.1f}"
+                mancal_val   = f"{row['mancal']:.1f}"
+                oleo_val     = f"{row['oleo']:.1f}"
+                vibra_val    = f"{row['vibra']:.2f}"
+                corrente_val = f"{row['corrente']:.1f}"
+                potencia_val = f"{row['potencia']:.1f}"
+                tensao_m_val = f"{row['tensao_motor']:.0f}"
+                tensao_r_val = f"{row['tensao_rede']:.0f}"
+
+                card_html = (
+                    f"<div class='modern-card status-{pump_status}'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;'>"
+                    f"<div>"
+                    f"<div style='font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;'>{pump_local}</div>"
+                    f"<div style='font-size:1.5rem;font-weight:800;'>BOMBA {pump_id}</div>"
+                    f"</div>"
+                    f"<div style='text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>SAÚDE</div>"
+                    f"<div style='font-size:2rem;font-weight:800;color:{health_color};'>{health}</div>"
+                    f"</div></div>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:8px 12px;border-radius:8px;margin-bottom:1rem;text-align:center;'>"
+                    f"<span style='font-size:0.85rem;font-weight:600;color:{status_color};'>● {status_label}</span>"
+                    f"</div>"
+                    f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1rem;'>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>⚙️ Pressão</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{pressao_val}<small style='font-size:0.7em;'> MCA</small></div></div>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_m} Mancal</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{mancal_val}<small style='font-size:0.7em;'> °C</small></div></div>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_o} Óleo</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{oleo_val}<small style='font-size:0.7em;'> °C</small></div></div>"
+                    f"</div>"
+                    f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1rem;'>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_v} Vibração</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{vibra_val}<small style='font-size:0.7em;'> mm/s</small></div></div>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_c} Corrente</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{corrente_val}<small style='font-size:0.7em;'> A</small></div></div>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>🔌 Potência</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{potencia_val}<small style='font-size:0.7em;'> kW</small></div></div>"
+                    f"</div>"
+                    f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;'>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>🔋 V. Motor</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{tensao_m_val}<small style='font-size:0.7em;'> V</small></div></div>"
+                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
+                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>⚡ V. Rede</div>"
+                    f"<div style='font-size:1.1rem;font-weight:700;'>{tensao_r_val}<small style='font-size:0.7em;'> V</small></div></div>"
+                    f"</div></div>"
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
+                st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
+
+                if st.button("📊 Ver Detalhes", key=f"btn_{row['local']}_{row['id']}", use_container_width=True):
                     st.session_state.selected_pump_id = row['id']
                     st.session_state.selected_local = row['local']
                     st.session_state.view = 'detalhes'
@@ -1468,7 +1472,7 @@ elif st.session_state.view == 'config':
             "Limite Máximo (A)",
             min_value=10.0,
             max_value=650.0,
-            value=float(config.get('limite_corrente', 60.0)),
+            value=float(config.get('limite_corrente', 480.0)),
             step=5.0,
             help="Corrente acima deste valor gera alarme",
             key="config_corrente"
