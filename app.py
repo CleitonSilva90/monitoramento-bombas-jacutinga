@@ -67,6 +67,20 @@ def mca_to_bar(mca_value):
 # ============================================================================
 
 @st.cache_data(ttl=10)
+def get_electrical_data():
+    """Busca dados elétricos da tabela status_eletrico, alimentada pelo ESP32.
+    Colunas esperadas: id_bomba, corrente, tensao_motor, tensao_rede, potencia"""
+    if not supabase:
+        return None
+    try:
+        response = supabase.table('status_eletrico').select('id_bomba, corrente, tensao_motor, tensao_rede, potencia').execute()
+        if response.data and len(response.data) > 0:
+            return pd.DataFrame(response.data)
+    except:
+        pass
+    return None
+
+@st.cache_data(ttl=10)
 def get_current_data():
     if not supabase:
         return get_mockup_data()
@@ -78,27 +92,33 @@ def get_current_data():
             df = pd.DataFrame(response.data)
             df['local'] = df['id_bomba'].apply(lambda x: str(x).split('_')[0].upper() if '_' in str(x) else 'UNKNOWN')
             df['id'] = df['id_bomba'].apply(lambda x: str(x).split('_')[1].upper() if '_' in str(x) else 'B00')
+            # pressao vem em bar do ESP32 → converte para MCA se valor < 50
             df['pressao'] = df['pressao'].apply(lambda x: bar_to_mca(x) if x < 50 else x)
             
+            # rms é o nome enviado pelo ESP32, internamente usamos 'vibra'
             if 'rms' in df.columns:
                 df = df.rename(columns={'rms': 'vibra'})
             
             config = get_config()
             df['status'] = df.apply(lambda row: determine_status(row, config), axis=1)
-            
-            # Campos adicionais - corrigido: evita chamar .fillna() em float
-            if 'corrente' in df.columns:
-                df['corrente'] = df['corrente'].fillna(45.0)
-            else:
-                df['corrente'] = 45.0
 
-            df['potencia'] = 22.0
-            df['tensao_motor'] = 380.0  # Tensão nominal do motor (V)
-            df['tensao_rede'] = 382.0   # Tensão da rede (V)
+            # Merge com tabela status_eletrico (ESP32 de elétrica)
+            df_eletrico = get_electrical_data()
+            if df_eletrico is not None and len(df_eletrico) > 0:
+                df = df.merge(df_eletrico, on='id_bomba', how='left')
+
+            # Fallback para campos elétricos caso a tabela ainda não tenha dados
+            for col, default in [('corrente', 45.0), ('tensao_motor', 380.0), ('tensao_rede', 382.0), ('potencia', 22.0)]:
+                if col not in df.columns:
+                    df[col] = default
+                else:
+                    df[col] = df[col].fillna(default)
+
             df['horas_operacao'] = 8234
             df['ultima_manutencao'] = "2024-11-15"
             
-            cols = ['id', 'local', 'status', 'pressao', 'mancal', 'oleo', 'vibra', 'corrente', 'potencia', 'tensao_motor', 'tensao_rede', 'horas_operacao', 'ultima_manutencao']
+            cols = ['id', 'local', 'id_bomba', 'status', 'pressao', 'mancal', 'oleo', 'vibra',
+                    'corrente', 'potencia', 'tensao_motor', 'tensao_rede', 'horas_operacao', 'ultima_manutencao']
             return df[[c for c in cols if c in df.columns]]
         else:
             return get_mockup_data()
@@ -131,11 +151,14 @@ def determine_status(row, config):
         pressao = float(row.get('pressao', 0))
         corrente = float(row.get('corrente', 0))
         
+        tensao_rede = float(row.get('tensao_rede', 380))
         if (mancal > config['limite_mancal'] or 
             oleo > config['limite_oleo'] or
             vibra > config['limite_rms'] or
             pressao < config['limite_pressao_mca'] or
-            corrente > config['limite_corrente']):
+            corrente > config['limite_corrente'] or
+            tensao_rede < config.get('limite_tensao_min', 360.0) or
+            tensao_rede > config.get('limite_tensao_max', 400.0)):
             return 'Alarme'
         
         return 'Online'
@@ -154,6 +177,10 @@ def get_config():
             config['limite_pressao_mca'] = bar_to_mca(config.get('limite_pressao', 2.0))
             if 'limite_corrente' not in config:
                 config['limite_corrente'] = 60.0
+            if 'limite_tensao_min' not in config:
+                config['limite_tensao_min'] = 360.0
+            if 'limite_tensao_max' not in config:
+                config['limite_tensao_max'] = 400.0
             return config
     except:
         pass
@@ -167,7 +194,9 @@ def get_default_config():
         'limite_pressao': 2.0,
         'limite_pressao_mca': 20.4,
         'limite_rms': 5.0,
-        'limite_corrente': 60.0
+        'limite_corrente': 60.0,
+        'limite_tensao_min': 360.0,
+        'limite_tensao_max': 400.0,
     }
 
 @st.cache_data(ttl=60)
@@ -191,8 +220,11 @@ def get_historical_data(pump_id, local, days=7):
         if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
             df['timestamp'] = pd.to_datetime(df['data_hora'])
+            # rms é o nome enviado pelo ESP32, internamente usamos 'vibra'
             if 'rms' in df.columns:
                 df = df.rename(columns={'rms': 'vibra'})
+            # historico não tem dados elétricos (tabela separada status_eletrico)
+            # adicionamos fallback para manter compatibilidade com gráficos de corrente
             if 'corrente' not in df.columns:
                 df['corrente'] = 45.0
             if 'potencia' not in df.columns:
@@ -292,7 +324,7 @@ def reconhecer_alarme(alarme_id, operador):
     except:
         return False
 
-def save_config_to_db(limite_mancal=None, limite_oleo=None, limite_pressao=None, limite_rms=None, limite_corrente=None):
+def save_config_to_db(limite_mancal=None, limite_oleo=None, limite_pressao=None, limite_rms=None, limite_corrente=None, limite_tensao_min=None, limite_tensao_max=None):
     if not supabase:
         return False
     
@@ -308,6 +340,10 @@ def save_config_to_db(limite_mancal=None, limite_oleo=None, limite_pressao=None,
             update_data['limite_rms'] = float(limite_rms)
         if limite_corrente is not None:
             update_data['limite_corrente'] = float(limite_corrente)
+        if limite_tensao_min is not None:
+            update_data['limite_tensao_min'] = float(limite_tensao_min)
+        if limite_tensao_max is not None:
+            update_data['limite_tensao_max'] = float(limite_tensao_max)
         
         if not update_data:
             return False
@@ -1338,7 +1374,7 @@ elif st.session_state.view == 'config':
     st.markdown("### ⚙️ Configurações do Sistema")
     st.info("💡 Configure os limites de alarmes. As alterações serão salvas no banco de dados.")
     
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["⚙️ Pressão", "〰️ Vibração", "🌡️ Mancal", "💧 Óleo", "⚡ Corrente"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚙️ Pressão", "〰️ Vibração", "🌡️ Mancal", "💧 Óleo", "⚡ Corrente", "🔋 Tensão"])
     
     config = get_config()
     
@@ -1432,7 +1468,7 @@ elif st.session_state.view == 'config':
             "Limite Máximo (A)",
             min_value=10.0,
             max_value=650.0,
-            value=float(config.get('limite_corrente', 500.0)),
+            value=float(config.get('limite_corrente', 60.0)),
             step=5.0,
             help="Corrente acima deste valor gera alarme",
             key="config_corrente"
@@ -1441,6 +1477,42 @@ elif st.session_state.view == 'config':
         if st.button("💾 Salvar Corrente", type="primary", use_container_width=True):
             if save_config_to_db(limite_corrente=limite_corrente):
                 st.success("✅ Limite de corrente salvo no banco!")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error("❌ Erro ao salvar")
+    
+    with tab6:
+        st.markdown("#### Configurações de Tensão da Rede")
+        st.info("💡 Dados de tensão enviados pelo ESP32 elétrico via tabela **status_eletrico**.")
+        
+        col_tv1, col_tv2 = st.columns(2)
+        
+        with col_tv1:
+            limite_tensao_min = st.number_input(
+                "Tensão Mínima (V)",
+                min_value=200.0,
+                max_value=420.0,
+                value=float(config.get("limite_tensao_min", 360.0)),
+                step=5.0,
+                help="Tensão abaixo deste valor gera alarme",
+                key="config_tensao_min"
+            )
+        
+        with col_tv2:
+            limite_tensao_max = st.number_input(
+                "Tensão Máxima (V)",
+                min_value=200.0,
+                max_value=440.0,
+                value=float(config.get("limite_tensao_max", 400.0)),
+                step=5.0,
+                help="Tensão acima deste valor gera alarme",
+                key="config_tensao_max"
+            )
+        
+        if st.button("💾 Salvar Tensão", type="primary", use_container_width=True):
+            if save_config_to_db(limite_tensao_min=limite_tensao_min, limite_tensao_max=limite_tensao_max):
+                st.success("✅ Limites de tensão salvos no banco!")
                 time.sleep(1)
                 st.rerun()
             else:
