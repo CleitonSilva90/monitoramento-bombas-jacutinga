@@ -35,16 +35,18 @@ st.set_page_config(
 SUPABASE_URL = "https://gsakrfgkdtttrhiyniup.supabase.co"
 SUPABASE_KEY = "sb_publishable_HvGb4EmEBNHl_nx9yBlKww_QzAujID7"
 
+
 @st.cache_resource
 def init_supabase():
     if not SUPABASE_AVAILABLE:
         return None
     try:
-        return create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Puxa direto do painel Secrets que você preencheu
+        url = st.secrets["supabase_url"]
+        key = st.secrets["supabase_key"]
+        return create_client(url, key)
     except:
         return None
-
-supabase = init_supabase()
 
 # ============================================================================
 # FUNÇÕES AUXILIARES
