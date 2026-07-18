@@ -5,6 +5,10 @@ import numpy as np
 from datetime import datetime, timedelta
 import time
 import io
+import threading
+import json
+from paho.mqtt import client as mqtt_client
+from supabase import create_client
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
@@ -47,6 +51,57 @@ def init_supabase():
         return create_client(url, key)
     except:
         return None
+# =====================================================================
+# PONTE MQTT EMBUTIDA (Roda em segundo plano no servidor do Streamlit)
+# =====================================================================
+
+def iniciar_ponte_mqtt():
+    # Evita abrir múltiplas conexões se o Streamlit recarregar a página
+    if "mqtt_rodando" in st.session_state:
+        return
+        
+    st.session_state["mqtt_rodando"] = True
+
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            client.subscribe("esp32/telemetria")
+
+    def on_message(client, userdata, msg):
+        try:
+            # 1. Decodifica o dado do ESP32
+            payload = msg.payload.decode()
+            dados = json.loads(payload)
+            
+            # 2. Conecta no Supabase e insere (puxando as credenciais das Secrets)
+            url = st.secrets["supabase_url"]
+            key = st.secrets["supabase_key"]
+            db = create_client(url, key)
+            
+            # Grava direto na tabela do banco
+            db.table("telemetria").insert(dados).execute()
+        except Exception as e:
+            pass # Silencia erros para não quebrar o painel do usuário
+
+    def rodar_cliente():
+        client = mqtt_client.Client("streamlit-bridge-client")
+        # Puxa os dados do HiveMQ que você pode deixar salvos nas Secrets também
+        client.username_pw_set("esp32_bomba", "b4M#8vX1")
+        client.tls_set() 
+        client.on_connect = on_connect
+        client.on_message = on_message
+        
+        try:
+            client.connect("5f4b9e08f5e64703a05df3b225cef6ba.s1.eu.hivemq.cloud", 8883)
+            client.loop_forever()
+        except:
+            pass
+
+    # Cria uma thread separada para o MQTT não travar a renderização do Streamlit
+    thread = threading.Thread(target=rodar_cliente, daemon=True)
+    thread.start()
+
+# Dispara a ponte assim que o app inicia
+iniciar_ponte_mqtt()
 
 # ============================================================================
 # FUNÇÕES AUXILIARES
