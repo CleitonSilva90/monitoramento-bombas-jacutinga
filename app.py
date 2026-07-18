@@ -57,36 +57,48 @@ supabase = init_supabase()
 # PONTE MQTT EMBUTIDA (Roda em segundo plano no servidor do Streamlit)
 # =====================================================================
 
+# Crie uma variável global simples no topo do app.py (fora de qualquer função)
+if "PONTE_MQTT_INICIADA" not in globals():
+    PONTE_MQTT_INICIADA = False
+
 def iniciar_ponte_mqtt():
-    # Evita abrir múltiplas conexões se o Streamlit recarregar a página
-    if "mqtt_rodando" in st.session_state:
+    global PONTE_MQTT_INICIADA
+    
+    # Se a ponte já foi criada no servidor, não faz nada e sai
+    if PONTE_MQTT_INICIADA:
         return
         
-    st.session_state["mqtt_rodando"] = True
+    PONTE_MQTT_INICIADA = True
 
     def on_connect(client, userdata, flags, rc):
         if rc == 0:
+            print("[PONTE GLOBAL] Conectado ao HiveMQ com sucesso!")
             client.subscribe("esp32/telemetria")
+        else:
+            print(f"[PONTE GLOBAL] Falha ao conectar. Código: {rc}")
 
     def on_message(client, userdata, msg):
         try:
-            # 1. Decodifica o dado do ESP32
             payload = msg.payload.decode()
             dados = json.loads(payload)
+            print(f"[PONTE GLOBAL] Dados capturados: {dados}")
             
-            # 2. Conecta no Supabase e insere (puxando as credenciais das Secrets)
+            # Conexão direta isolada para gravação rápida
             url = st.secrets["supabase_url"]
             key = st.secrets["supabase_key"]
             db = create_client(url, key)
             
-            # Grava direto na tabela do banco
-            db.table("telemetria").insert(dados).execute()
+            res = db.table("telemetria").insert(dados).execute()
+            print(f"[PONTE GLOBAL] Gravado com sucesso: {res.data}")
         except Exception as e:
-            pass # Silencia erros para não quebrar o painel do usuário
+            print(f"[PONTE GLOBAL] Erro na gravação: {e}")
 
     def rodar_cliente():
-        client = mqtt_client.Client("streamlit-bridge-client")
-        # Puxa os dados do HiveMQ que você pode deixar salvos nas Secrets também
+        # Geramos um ID aleatório para evitar que o cliente se auto-derrube caso mude a conexão
+        import random
+        client_id = f"streamlit-server-bridge-{random.randint(1000, 9999)}"
+        client = mqtt_client.Client(client_id)
+        
         client.username_pw_set("esp32_bomba", "b4M#8vX1")
         client.tls_set() 
         client.on_connect = on_connect
@@ -95,16 +107,15 @@ def iniciar_ponte_mqtt():
         try:
             client.connect("5f4b9e08f5e64703a05df3b225cef6ba.s1.eu.hivemq.cloud", 8883)
             client.loop_forever()
-        except:
-            pass
+        except Exception as e:
+            print(f"[PONTE GLOBAL] Falha na execução do loop MQTT: {e}")
 
-    # Cria uma thread separada para o MQTT não travar a renderização do Streamlit
+    # Inicializa como daemon true para rodar eternamente no background do servidor do Streamlit
     thread = threading.Thread(target=rodar_cliente, daemon=True)
     thread.start()
 
-# Dispara a ponte assim que o app inicia
+# Invoca a inicialização global
 iniciar_ponte_mqtt()
-
 # ============================================================================
 # FUNÇÕES AUXILIARES
 # ============================================================================
