@@ -141,22 +141,43 @@ def get_electrical_data():
 
 @st.cache_data(ttl=10)
 def get_current_data():
-    if not supabase:
+    global supabase  # 1. Dá acesso à variável global que criamos fora da função
+    
+    if supabase is None:  # Correção da checagem para objetos do tipo cliente Supabase
         return get_mockup_data()
     
     try:
-        response = supabase.table('status_atual').select('*').execute()
+        # 2. Mudamos o nome da tabela de 'status_atual' para 'telemetria' (onde o ESP32 grava)
+        response = supabase.table('telemetria').select('*').execute()
         
         if response.data and len(response.data) > 0:
             df = pd.DataFrame(response.data)
+            
+            # Tratamento de Strings do ID da bomba (Ex: jacutinga_b01 -> JACUTINGA e B01)
             df['local'] = df['id_bomba'].apply(lambda x: str(x).split('_')[0].upper() if '_' in str(x) else 'UNKNOWN')
             df['id'] = df['id_bomba'].apply(lambda x: str(x).split('_')[1].upper() if '_' in str(x) else 'B00')
-            # pressao vem em bar do ESP32 → converte para MCA se valor < 50
-            df['pressao'] = df['pressao'].apply(lambda x: bar_to_mca(x) if x < 50 else x)
             
-            # rms é o nome enviado pelo ESP32, internamente usamos 'vibra'
-            if 'rms' in df.columns:
+            # 3. Mapeamento de chaves do novo ESP32 para as colunas que o app espera
+            # Pressão vinda do ESP32 (pressao_bar) mapeada para a coluna 'pressao' do app
+            if 'pressao_bar' in df.columns:
+                df['pressao'] = df['pressao_bar']
+                
+            # Temperaturas vindas do ESP32 mapeadas para os mancais e óleo
+            if 'temp1_C' in df.columns:
+                df['mancal'] = df['temp1_C']  # Exemplo: Temp1 mapeada para Mancal
+            if 'temp2_C' in df.columns:
+                df['oleo'] = df['temp2_C']    # Exemplo: Temp2 mapeada para Óleo
+                
+            # Vibração: O ESP32 envia gX, gY, gZ. O app espera 'vibra' (antigo rms).
+            # Vamos adotar o eixo de maior vibração (ou você pode fazer a resultante se preferir)
+            if 'gZ' in df.columns:
+                df['vibra'] = df['gZ']  
+            elif 'rms' in df.columns:
                 df = df.rename(columns={'rms': 'vibra'})
+            
+            # Pressão vem em bar do ESP32 → converte para MCA se valor < 50
+            if 'pressao' in df.columns:
+                df['pressao'] = df['pressao'].apply(lambda x: bar_to_mca(x) if x < 50 else x)
             
             config = get_config()
             df['status'] = df.apply(lambda row: determine_status(row, config), axis=1)
@@ -182,7 +203,7 @@ def get_current_data():
         else:
             return get_mockup_data()
     except Exception as e:
-        st.warning(f"Usando mockup: {str(e)[:100]}")
+        st.warning(f"Usando mockup devido ao erro: {str(e)[:100]}")
         return get_mockup_data()
 
 def get_mockup_data():
