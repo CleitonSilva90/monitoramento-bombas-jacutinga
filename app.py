@@ -42,15 +42,17 @@ SUPABASE_KEY = "sb_publishable_HvGb4EmEBNHl_nx9yBlKww_QzAujID7"
 
 @st.cache_resource
 def init_supabase():
-    if not SUPABASE_AVAILABLE:
+    if not SUPABASE_AVAILABLE: # Se você tiver essa flag, garanta que ela é True
         return None
     try:
-        # Puxa direto do painel Secrets que você preencheu
         url = st.secrets["supabase_url"]
         key = st.secrets["supabase_key"]
         return create_client(url, key)
-    except:
+    except Exception as e:
         return None
+
+# ESSA LINHA É FUNDAMENTAL: Ela cria o objeto global que a sua função 'get_current_data' está procurando
+supabase = init_supabase()
 # =====================================================================
 # PONTE MQTT EMBUTIDA (Roda em segundo plano no servidor do Streamlit)
 # =====================================================================
