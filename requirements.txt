@@ -16,3 +16,5 @@ postgrest>=0.16.0
 openpyxl>=3.1.0  # Excel
 reportlab>=4.0.0  # PDF
 
+# Protocolos e Comunicação (Ponte MQTT)
+paho-mqtt==1.6.1
