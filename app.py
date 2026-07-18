@@ -32,8 +32,8 @@ st.set_page_config(
 # SUPABASE
 # ============================================================================
 
-SUPABASE_URL = "https://iemojjmgzyrxddochnlq.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImllbW9qam1nenlyeGRkb2NobmxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA1MzU2NTYsImV4cCI6MjA4NjExMTY1Nn0.Adeu9DBblWBUQfwlJS9XrcKWixNRqRizFEZ0TOkx7eY"
+SUPABASE_URL = "https://gsakrfgkdtttrhiyniup.supabase.co"
+SUPABASE_KEY = "sb_publishable_HvGb4EmEBNHl_nx9yBlKww_QzAujID7"
 
 @st.cache_resource
 def init_supabase():
