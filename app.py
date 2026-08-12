@@ -1,1626 +1,1761 @@
-import streamlit as st
+
+
+
+
+import io
+from datetime import datetime, timedelta, timezone
+
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-import numpy as np
-from datetime import datetime, timedelta
-import time
-import io
-import threading
-import json
-from paho.mqtt import client as mqtt_client
-from supabase import create_client
-from reportlab.lib.pagesizes import A4
+import streamlit as st
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
 from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle, Paragraph
+from supabase import create_client
 
 try:
-    from supabase import create_client, Client
-    SUPABASE_AVAILABLE = True
+    from streamlit_autorefresh import st_autorefresh
+    AUTOREFRESH_AVAILABLE = True
 except ImportError:
-    SUPABASE_AVAILABLE = False
+    AUTOREFRESH_AVAILABLE = False
 
-# ============================================================================
+
+# ============================================================
 # CONFIGURAÇÃO
-# ============================================================================
+# ============================================================
 
 st.set_page_config(
-    page_title="GS Inima | Monitoramento Industrial",
+    page_title="AXION | Monitoramento Industrial",
+    page_icon="📡",
     layout="wide",
     initial_sidebar_state="collapsed",
-    menu_items={'About': "Sistema de Monitoramento Industrial v4.0"}
 )
 
-# ============================================================================
+REFRESH_SECONDS = 30
+OFFLINE_AFTER_SECONDS = 120
+MCA_PER_BAR = 10.197
+
+
+# ============================================================
 # SUPABASE
-# ============================================================================
-
-SUPABASE_URL = "https://gsakrfgkdtttrhiyniup.supabase.co"
-SUPABASE_KEY = "sb_publishable_HvGb4EmEBNHl_nx9yBlKww_QzAujID7"
-
+# ============================================================
 
 @st.cache_resource
 def init_supabase():
-    if not SUPABASE_AVAILABLE: # Se você tiver essa flag, garanta que ela é True
-        return None
     try:
         url = st.secrets["supabase_url"]
         key = st.secrets["supabase_key"]
         return create_client(url, key)
-    except Exception as e:
+    except Exception as exc:
+        st.error(f"Não foi possível conectar ao Supabase: {exc}")
         return None
 
-# ESSA LINHA É FUNDAMENTAL: Ela cria o objeto global que a sua função 'get_current_data' está procurando
+
 supabase = init_supabase()
-# =====================================================================
-# PONTE MQTT EMBUTIDA (Roda em segundo plano no servidor do Streamlit)
-# =====================================================================
 
-# Crie uma variável global simples no topo do app.py (fora de qualquer função)
-if "PONTE_MQTT_INICIADA" not in globals():
-    PONTE_MQTT_INICIADA = False
 
-def iniciar_ponte_mqtt():
-    global PONTE_MQTT_INICIADA
-    
-    # Se a ponte já foi criada no servidor, não faz nada e sai
-    if PONTE_MQTT_INICIADA:
-        return
-        
-    PONTE_MQTT_INICIADA = True
+# ============================================================
+# ESTADO
+# ============================================================
 
-    def on_connect(client, userdata, flags, rc):
-        if rc == 0:
-            print("[PONTE GLOBAL] Conectado ao HiveMQ com sucesso!")
-            client.subscribe("esp32/telemetria")
-        else:
-            print(f"[PONTE GLOBAL] Falha ao conectar. Código: {rc}")
+if "view" not in st.session_state:
+    st.session_state.view = "dashboard"
 
-    def on_message(client, userdata, msg):
-        try:
-            payload = msg.payload.decode()
-            dados = json.loads(payload)
-            print(f"[PONTE GLOBAL] Dados capturados: {dados}")
-            
-            # Conexão direta isolada para gravação rápida
-            url = st.secrets["supabase_url"]
-            key = st.secrets["supabase_key"]
-            db = create_client(url, key)
-            
-            res = db.table("telemetria").insert(dados).execute()
-            print(f"[PONTE GLOBAL] Gravado com sucesso: {res.data}")
-        except Exception as e:
-            print(f"[PONTE GLOBAL] Erro na gravação: {e}")
+if "device_id" not in st.session_state:
+    st.session_state.device_id = None
 
-    def rodar_cliente():
-        # Geramos um ID aleatório para evitar que o cliente se auto-derrube caso mude a conexão
-        import random
-        client_id = f"streamlit-server-bridge-{random.randint(1000, 9999)}"
-        client = mqtt_client.Client(client_id)
-        
-        client.username_pw_set("esp32_bomba", "b4M#8vX1")
-        client.tls_set() 
-        client.on_connect = on_connect
-        client.on_message = on_message
-        
-        try:
-            client.connect("5f4b9e08f5e64703a05df3b225cef6ba.s1.eu.hivemq.cloud", 8883)
-            client.loop_forever()
-        except Exception as e:
-            print(f"[PONTE GLOBAL] Falha na execução do loop MQTT: {e}")
+if "last_refresh" not in st.session_state:
+    st.session_state.last_refresh = datetime.now().timestamp()
 
-    # Inicializa como daemon true para rodar eternamente no background do servidor do Streamlit
-    thread = threading.Thread(target=rodar_cliente, daemon=True)
-    thread.start()
 
-# Invoca a inicialização global
-iniciar_ponte_mqtt()
-# ============================================================================
-# FUNÇÕES AUXILIARES
-# ============================================================================
+# ============================================================
+# AUTO REFRESH REAL
+# ============================================================
 
-def bar_to_mca(bar_value):
+if AUTOREFRESH_AVAILABLE:
+    st_autorefresh(
+        interval=REFRESH_SECONDS * 1000,
+        limit=None,
+        key="axion_auto_refresh",
+    )
+else:
+    st.warning(
+        "Atualização automática indisponível: instale "
+        "`streamlit-autorefresh` no ambiente do dashboard."
+    )
+
+
+# ============================================================
+# ESTILO
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+        :root {
+            --bg: #0b1020;
+            --card: #1d2740;
+            --card2: #162038;
+            --border: #334155;
+            --text: #f8fafc;
+            --muted: #94a3b8;
+            --blue: #3b82f6;
+            --green: #10b981;
+            --yellow: #f59e0b;
+            --red: #ef4444;
+            --cyan: #38bdf8;
+        }
+
+        .stApp {
+            background:
+                radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 35%),
+                linear-gradient(135deg, #0b1020 0%, #070b14 100%);
+            color: var(--text);
+        }
+
+        /* Botões do aplicativo */
+        div.stButton > button {
+            width: 100%;
+            min-height: 44px;
+            border-radius: 10px;
+            border: 1px solid #475569;
+            background: #1e293b;
+            color: #f8fafc;
+            font-weight: 750;
+            font-size: 0.92rem;
+            box-shadow: 0 3px 10px rgba(0,0,0,.15);
+        }
+
+        div.stButton > button:hover {
+            border-color: #60a5fa;
+            background: #263650;
+            color: #ffffff;
+        }
+
+        div.stButton > button:focus {
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 2px rgba(59,130,246,.22);
+            color: #ffffff;
+        }
+
+        /* Botão ativo / primary */
+        div.stButton > button[kind="primary"] {
+            background: #2563eb;
+            border-color: #3b82f6;
+            color: #ffffff;
+        }
+
+        div.stButton > button[kind="primary"]:hover {
+            background: #1d4ed8;
+            border-color: #60a5fa;
+            color: #ffffff;
+        }
+
+        /* Ícones e texto internos */
+        div.stButton > button p {
+            color: inherit !important;
+            font-weight: 750 !important;
+        }
+
+        [data-testid="stHeader"] {
+            display: none;
+        }
+
+        .block-container {
+            max-width: 1600px;
+            padding-top: 1rem;
+            padding-bottom: 2rem;
+        }
+
+        .top-card {
+            background: linear-gradient(135deg, #1d2740 0%, #151d31 100%);
+            border: 1px solid #334155;
+            border-radius: 18px;
+            padding: 1.3rem 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .device-card {
+            background: linear-gradient(135deg, #1e293b 0%, #172033 100%);
+            border: 1px solid #334155;
+            border-radius: 16px;
+            padding: 1rem;
+            min-height: 360px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.18);
+        }
+
+        .device-card:hover {
+            border-color: rgba(59,130,246,.8);
+        }
+
+        .metric {
+            background: rgba(15,23,42,.52);
+            border: 1px solid rgba(148,163,184,.12);
+            border-radius: 10px;
+            padding: .7rem;
+            min-height: 74px;
+        }
+
+        .metric-title {
+            color: #94a3b8;
+            font-size: .72rem;
+            text-transform: uppercase;
+            letter-spacing: .3px;
+        }
+
+        .metric-value {
+            color: #f8fafc;
+            font-size: 1.15rem;
+            font-weight: 800;
+            margin-top: .25rem;
+        }
+
+        .location-title {
+            margin-top: 1rem;
+            margin-bottom: .6rem;
+            font-size: 1.1rem;
+            font-weight: 800;
+        }
+
+        .kpi {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 14px;
+            padding: 1rem;
+            text-align: center;
+        }
+
+        .kpi-value {
+            font-size: 1.9rem;
+            font-weight: 850;
+            line-height: 1.1;
+        }
+
+        .muted {
+            color: #94a3b8;
+            font-size: .82rem;
+        }
+
+        .small {
+            color: #94a3b8;
+            font-size: .74rem;
+        }
+
+        .pill-online {
+            display: inline-block;
+            padding: .26rem .6rem;
+            border-radius: 999px;
+            background: rgba(16,185,129,.12);
+            color: #10b981;
+            border: 1px solid rgba(16,185,129,.25);
+            font-weight: 700;
+            font-size: .72rem;
+        }
+
+        .pill-offline {
+            display: inline-block;
+            padding: .26rem .6rem;
+            border-radius: 999px;
+            background: rgba(100,116,139,.12);
+            color: #94a3b8;
+            border: 1px solid rgba(100,116,139,.25);
+            font-weight: 700;
+            font-size: .72rem;
+        }
+
+        .pill-alarm {
+            display: inline-block;
+            padding: .26rem .6rem;
+            border-radius: 999px;
+            background: rgba(239,68,68,.12);
+            color: #ef4444;
+            border: 1px solid rgba(239,68,68,.25);
+            font-weight: 700;
+            font-size: .72rem;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# ============================================================
+# AUXILIARES
+# ============================================================
+
+def safe_float(value, default=np.nan):
     try:
-        return float(bar_value) * 10.197
-    except:
-        return 0.0
+        if value is None:
+            return default
+        value = float(value)
+        return value if np.isfinite(value) else default
+    except (TypeError, ValueError):
+        return default
 
-def mca_to_bar(mca_value):
+
+def format_value(value, decimals=2, unit=""):
+    value = safe_float(value)
+    if not np.isfinite(value):
+        return "—"
+    return f"{value:.{decimals}f}{(' ' + unit) if unit else ''}"
+
+
+def bar_to_mca(value):
+    value = safe_float(value)
+    return value * MCA_PER_BAR if np.isfinite(value) else np.nan
+
+
+def latest_age_seconds(recebido_em):
     try:
-        return float(mca_value) / 10.197
-    except:
-        return 0.0
+        ts = pd.to_datetime(recebido_em, utc=True)
+        now = pd.Timestamp.now(tz="UTC")
+        return max(0, (now - ts).total_seconds())
+    except Exception:
+        return float("inf")
 
-# ============================================================================
-# BANCO DE DADOS
-# ============================================================================
 
-@st.cache_data(ttl=10)
-def get_electrical_data():
-    """Busca dados elétricos da tabela status_eletrico, alimentada pelo ESP32.
-    Colunas esperadas: id_bomba, corrente, tensao_motor, tensao_rede, potencia"""
-    if not supabase:
-        return None
-    try:
-        response = supabase.table('status_eletrico').select('id_bomba, corrente, tensao_motor, tensao_rede, potencia').execute()
-        if response.data and len(response.data) > 0:
-            return pd.DataFrame(response.data)
-    except:
-        pass
-    return None
+def channel_prefix(canal):
+    return str(canal).lower()
 
-@st.cache_data(ttl=10)
-def get_current_data():
-    global supabase  # 1. Dá acesso à variável global que criamos fora da função
-    
-    if supabase is None:  # Correção da checagem para objetos do tipo cliente Supabase
-        return get_mockup_data()
-    
-    try:
-        # 2. Mudamos o nome da tabela de 'status_atual' para 'telemetria' (onde o ESP32 grava)
-        response = supabase.table('telemetria').select('*').execute()
-        
-        if response.data and len(response.data) > 0:
-            df = pd.DataFrame(response.data)
-            
-            # Tratamento de Strings do ID da bomba (Ex: jacutinga_b01 -> JACUTINGA e B01)
-            df['local'] = df['id_bomba'].apply(lambda x: str(x).split('_')[0].upper() if '_' in str(x) else 'UNKNOWN')
-            df['id'] = df['id_bomba'].apply(lambda x: str(x).split('_')[1].upper() if '_' in str(x) else 'B00')
-            
-            # 3. Mapeamento de chaves do novo ESP32 para as colunas que o app espera
-            # Pressão vinda do ESP32 (pressao_bar) mapeada para a coluna 'pressao' do app
-            if 'pressao_bar' in df.columns:
-                df['pressao'] = df['pressao_bar']
-                
-            # Temperaturas vindas do ESP32 mapeadas para os mancais e óleo
-            if 'temp1_C' in df.columns:
-                df['mancal'] = df['temp1_C']  # Exemplo: Temp1 mapeada para Mancal
-            if 'temp2_C' in df.columns:
-                df['oleo'] = df['temp2_C']    # Exemplo: Temp2 mapeada para Óleo
-                
-            # Vibração: O ESP32 envia gX, gY, gZ. O app espera 'vibra' (antigo rms).
-            # Vamos adotar o eixo de maior vibração (ou você pode fazer a resultante se preferir)
-            if 'gZ' in df.columns:
-                df['vibra'] = df['gZ']  
-            elif 'rms' in df.columns:
-                df = df.rename(columns={'rms': 'vibra'})
-            
-            # Pressão vem em bar do ESP32 → converte para MCA se valor < 50
-            if 'pressao' in df.columns:
-                df['pressao'] = df['pressao'].apply(lambda x: bar_to_mca(x) if x < 50 else x)
-            
-            config = get_config()
-            df['status'] = df.apply(lambda row: determine_status(row, config), axis=1)
 
-            # Merge com tabela status_eletrico (ESP32 de elétrica)
-            df_eletrico = get_electrical_data()
-            if df_eletrico is not None and len(df_eletrico) > 0:
-                df = df.merge(df_eletrico, on='id_bomba', how='left')
+def channel_field(canal):
+    return f"{channel_prefix(canal)}_value"
 
-            # Fallback para campos elétricos caso a tabela ainda não tenha dados
-            for col, default in [('corrente', 45.0), ('tensao_motor', 380.0), ('tensao_rede', 382.0), ('potencia', 22.0)]:
-                if col not in df.columns:
-                    df[col] = default
-                else:
-                    df[col] = df[col].fillna(default)
 
-            df['horas_operacao'] = 8234
-            df['ultima_manutencao'] = "2024-11-15"
-            
-            cols = ['id', 'local', 'id_bomba', 'status', 'pressao', 'mancal', 'oleo', 'vibra',
-                    'corrente', 'potencia', 'tensao_motor', 'tensao_rede', 'horas_operacao', 'ultima_manutencao']
-            return df[[c for c in cols if c in df.columns]]
-        else:
-            return get_mockup_data()
-    except Exception as e:
-        st.warning(f"Usando mockup devido ao erro: {str(e)[:100]}")
-        return get_mockup_data()
+def channel_display_name(config, canal):
+    if not config:
+        return canal
+    return (
+        config.get("nome")
+        or config.get("descricao")
+        or canal
+    )
 
-def get_mockup_data():
-    return pd.DataFrame([
-        {"id": "B01", "local": "JACUTINGA", "status": "Online", "pressao": 24.5, "mancal": 34.2, "oleo": 26.8, "vibra": 0.45, "corrente": 45.2, "potencia": 22.5, "tensao_motor": 380, "tensao_rede": 382, "horas_operacao": 8234, "ultima_manutencao": "2024-11-15"},
-        {"id": "B02", "local": "JACUTINGA", "status": "Alarme", "pressao": 1.2, "mancal": 72.1, "oleo": 85.4, "vibra": 4.21, "corrente": 62.1, "potencia": 5.8, "tensao_motor": 380, "tensao_rede": 375, "horas_operacao": 12456, "ultima_manutencao": "2024-08-22"},
-        {"id": "B03", "local": "JACUTINGA", "status": "Online", "pressao": 24.1, "mancal": 35.0, "oleo": 27.0, "vibra": 0.48, "corrente": 44.8, "potencia": 22.1, "tensao_motor": 380, "tensao_rede": 381, "horas_operacao": 6789, "ultima_manutencao": "2024-12-01"},
-    ])
 
-def determine_status(row, config):
-    try:
-        if pd.notna(row.get('ultima_batida')):
-            try:
-                ultima_batida = pd.to_datetime(row['ultima_batida'])
-                agora = pd.Timestamp.now(tz='UTC')
-                diferenca = (agora - ultima_batida).total_seconds() / 60
-                if diferenca > 5:
-                    return 'Offline'
-            except:
-                pass
-        
-        mancal = float(row.get('mancal', 0))
-        oleo = float(row.get('oleo', 0))
-        vibra = float(row.get('vibra', 0))
-        pressao = float(row.get('pressao', 0))
-        corrente = float(row.get('corrente', 0))
-        
-        tensao_rede = float(row.get('tensao_rede', 380))
-        if (mancal > config['limite_mancal'] or 
-            oleo > config['limite_oleo'] or
-            vibra > config['limite_rms'] or
-            pressao < config['limite_pressao_mca'] or
-            corrente > config['limite_corrente'] or
-            tensao_rede < config.get('limite_tensao_min', 360.0) or
-            tensao_rede > config.get('limite_tensao_max', 400.0)):
-            return 'Alarme'
-        
-        return 'Online'
-    except:
-        return 'Online'
+def channel_unit(config, default=""):
+    if not config:
+        return default
+    return config.get("unidade") or default
 
-@st.cache_data(ttl=60)
-def get_config():
-    if not supabase:
-        return get_default_config()
-    
-    try:
-        response = supabase.table('configuracoes').select('*').eq('id', 1).execute()
-        if response.data and len(response.data) > 0:
-            config = response.data[0]
-            config['limite_pressao_mca'] = bar_to_mca(config.get('limite_pressao', 2.0))
-            if 'limite_corrente' not in config:
-                config['limite_corrente'] = 60.0
-            if 'limite_tensao_min' not in config:
-                config['limite_tensao_min'] = 360.0
-            if 'limite_tensao_max' not in config:
-                config['limite_tensao_max'] = 400.0
-            return config
-    except:
-        pass
-    
-    return get_default_config()
+
+def status_badge(status):
+    if status == "Online":
+        return "<span class='pill-online'>ONLINE</span>"
+    if status == "Alarme":
+        return "<span class='pill-alarm'>ALARME</span>"
+    return "<span class='pill-offline'>OFFLINE</span>"
+
 
 def get_default_config():
     return {
-        'limite_mancal': 75.0,
-        'limite_oleo': 80.0,
-        'limite_pressao': 2.0,
-        'limite_pressao_mca': 20.4,
-        'limite_rms': 5.0,
-        'limite_corrente': 60.0,
-        'limite_tensao_min': 360.0,
-        'limite_tensao_max': 400.0,
+        "limite_pressao": 2.0,
+        "limite_mancal": 75.0,
+        "limite_oleo": 80.0,
+        "limite_rms": 5.0,
     }
 
-@st.cache_data(ttl=60)
-def get_historical_data(pump_id, local, days=7):
-    if not supabase:
-        return generate_mockup_historical(pump_id, local, days)
-    
-    try:
-        id_bomba = f"{local.lower()}_{pump_id.lower()}"
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        
-        response = supabase.table('historico')\
-            .select('*')\
-            .eq('id_bomba', id_bomba)\
-            .gte('data_hora', start_date.isoformat())\
-            .lte('data_hora', end_date.isoformat())\
-            .order('data_hora', desc=False)\
-            .execute()
-        
-        if response.data and len(response.data) > 0:
-            df = pd.DataFrame(response.data)
-            df['timestamp'] = pd.to_datetime(df['data_hora'])
-            # rms é o nome enviado pelo ESP32, internamente usamos 'vibra'
-            if 'rms' in df.columns:
-                df = df.rename(columns={'rms': 'vibra'})
-            # historico não tem dados elétricos (tabela separada status_eletrico)
-            # adicionamos fallback para manter compatibilidade com gráficos de corrente
-            if 'corrente' not in df.columns:
-                df['corrente'] = 45.0
-            if 'potencia' not in df.columns:
-                df['potencia'] = 22.0
-            return df
-    except:
-        pass
-    
-    return generate_mockup_historical(pump_id, local, days)
 
-def generate_mockup_historical(pump_id, local, days):
-    end_time = datetime.now()
-    start_time = end_time - timedelta(days=days)
-    timestamps = pd.date_range(start=start_time, end=end_time, freq='5min')
-    
-    np.random.seed(hash(pump_id + local) % 10000)
-    
-    return pd.DataFrame({
-        'timestamp': timestamps,
-        'pressao': np.random.normal(24.0, 0.8, len(timestamps)),
-        'mancal': np.random.normal(34.0, 2.5, len(timestamps)),
-        'oleo': np.random.normal(26.5, 1.8, len(timestamps)),
-        'vibra': np.abs(np.random.normal(0.45, 0.12, len(timestamps))),
-        'corrente': np.random.normal(45.0, 2.1, len(timestamps)),
-        'potencia': np.random.normal(22.0, 1.2, len(timestamps)),
-    })
+# ============================================================
+# CONFIGURAÇÕES DO BANCO
+# ============================================================
+
+@st.cache_data(ttl=30)
+def load_devices():
+    """
+    Estrutura esperada na tabela public.dispositivos:
+      device_id, nome, local, descricao, ativo, ordem
+    Colunas adicionais existentes são preservadas.
+    """
+
+    if supabase is None:
+        return pd.DataFrame(columns=[
+            "device_id", "nome", "local", "descricao", "ativo", "ordem"
+        ])
+
+    try:
+        response = (
+            supabase
+            .table("dispositivos")
+            .select("*")
+            .execute()
+        )
+
+        data = response.data or []
+        if not data:
+            return pd.DataFrame(columns=[
+                "device_id", "nome", "local", "descricao", "ativo", "ordem"
+            ])
+
+        df = pd.DataFrame(data)
+
+        defaults = {
+            "nome": None,
+            "local": "Sem local",
+            "descricao": None,
+            "ativo": True,
+            "ordem": 999,
+        }
+
+        for col, default in defaults.items():
+            if col not in df.columns:
+                df[col] = default
+
+        if "device_id" not in df.columns:
+            return pd.DataFrame(columns=[
+                "device_id", "nome", "local", "descricao", "ativo", "ordem"
+            ])
+
+        df["ativo"] = df["ativo"].fillna(True).astype(bool)
+        df["ordem"] = pd.to_numeric(df["ordem"], errors="coerce").fillna(999)
+
+        return df
+
+    except Exception:
+        # Durante a transição, não impedir o dashboard de funcionar
+        # apenas porque a tabela dispositivos ainda não foi expandida.
+        return pd.DataFrame(columns=[
+            "device_id", "nome", "local", "descricao", "ativo", "ordem"
+        ])
+
+
+@st.cache_data(ttl=30)
+def load_channel_configs():
+    if supabase is None:
+        return {}
+
+    try:
+        response = (
+            supabase
+            .table("canais_analogicos")
+            .select("*")
+            .execute()
+        )
+
+        configs = {}
+
+        for row in response.data or []:
+            key = (
+                str(row.get("device_id", "")),
+                str(row.get("canal", "")).upper(),
+            )
+            configs[key] = row
+
+        return configs
+
+    except Exception:
+        return {}
+
+
+@st.cache_data(ttl=30)
+def load_global_config():
+    config = get_default_config()
+
+    if supabase is None:
+        return config
+
+    try:
+        response = (
+            supabase
+            .table("configuracoes")
+            .select("*")
+            .eq("id", 1)
+            .limit(1)
+            .execute()
+        )
+
+        if response.data:
+            config.update(response.data[0])
+
+    except Exception:
+        pass
+
+    return config
+
+
+# ============================================================
+# TELEMETRIA
+# ============================================================
 
 @st.cache_data(ttl=10)
-def get_alarmes():
-    """Busca alarmes do banco"""
-    if not supabase:
-        return get_mockup_alarmes()
-    
+def load_telemetry():
+    columns = [
+        "device_id",
+        "timestamp_dispositivo",
+        "recebido_em",
+        "ai001", "ai002", "ai003", "ai004",
+        "ai005", "ai006", "ai007", "ai008",
+        "ai004_ma", "ai004_value",
+        "ai005_ma", "ai005_value",
+        "ai006_ma", "ai006_value",
+        "ai007_ma", "ai007_value",
+        "ai008_ma", "ai008_value",
+        "x_mm_s", "x_rms",
+        "y_mm_s", "y_rms",
+        "z_mm_s", "z_rms",
+    ]
+
+    if supabase is None:
+        return pd.DataFrame(columns=columns + ["status"])
+
     try:
-        response = supabase.table('logs_alertas')\
-            .select('*')\
-            .order('data_hora', desc=True)\
-            .limit(50)\
+        response = (
+            supabase
+            .table("telemetria")
+            .select("*")
+            .order("recebido_em", desc=True)
+            .limit(1000)
             .execute()
-        
-        if response.data and len(response.data) > 0:
-            df = pd.DataFrame(response.data)
-            return df
-        else:
-            return get_mockup_alarmes()
-    except:
-        return get_mockup_alarmes()
+        )
 
-def get_mockup_alarmes():
-    """Alarmes mockup"""
-    return pd.DataFrame([
-        {
-            'id': 1,
-            'data_hora': datetime.now() - timedelta(minutes=15),
-            'bomba': 'JACUTINGA - B02',
-            'sensor': 'Temperatura Óleo',
-            'valor_detectado': '85.4°C',
-            'limite_definido': '80.0°C',
-            'status': 'Ativo',
-            'operador': 'Sistema'
-        },
-        {
-            'id': 2,
-            'data_hora': datetime.now() - timedelta(minutes=30),
-            'bomba': 'JACUTINGA - B02',
-            'sensor': 'Vibração',
-            'valor_detectado': '4.21 mm/s',
-            'limite_definido': '3.0 mm/s',
-            'status': 'Ativo',
-            'operador': 'Sistema'
-        },
-        {
-            'id': 3,
-            'data_hora': datetime.now() - timedelta(hours=2),
-            'bomba': 'JACUTINGA - B02',
-            'sensor': 'Corrente',
-            'valor_detectado': '62.1 A',
-            'limite_definido': '60.0 A',
-            'status': 'Reconhecido',
-            'operador': 'João Silva'
-        },
-    ])
+        data = response.data or []
+        if not data:
+            return pd.DataFrame(columns=columns + ["status"])
 
-def reconhecer_alarme(alarme_id, operador):
-    """Reconhece um alarme"""
-    if not supabase:
-        return False
-    
+        df = pd.DataFrame(data)
+
+        for col in columns:
+            if col not in df.columns:
+                df[col] = np.nan
+
+        df["recebido_em"] = pd.to_datetime(
+            df["recebido_em"],
+            utc=True,
+            errors="coerce",
+        )
+
+        # Última leitura por dispositivo para o dashboard.
+        df = (
+            df.sort_values("recebido_em", ascending=False)
+            .drop_duplicates("device_id", keep="first")
+            .reset_index(drop=True)
+        )
+
+        global_config = load_global_config()
+
+        def row_status(row):
+            age = latest_age_seconds(row.get("recebido_em"))
+            if age > OFFLINE_AFTER_SECONDS:
+                return "Offline"
+
+            # Pressão
+            p = safe_float(row.get("ai004_value"))
+            p_min = safe_float(global_config.get("limite_pressao"))
+            if np.isfinite(p) and np.isfinite(p_min) and p < p_min:
+                return "Alarme"
+
+            # Vibração
+            vibration = [
+                safe_float(row.get("x_mm_s")),
+                safe_float(row.get("y_mm_s")),
+                safe_float(row.get("z_mm_s")),
+            ]
+            vibration = [v for v in vibration if np.isfinite(v)]
+
+            v_limit = safe_float(global_config.get("limite_rms"))
+            if vibration and np.isfinite(v_limit) and max(vibration) > v_limit:
+                return "Alarme"
+
+            # Temperaturas configuradas
+            t6 = safe_float(row.get("ai006_value"))
+            t7 = safe_float(row.get("ai007_value"))
+
+            if (
+                np.isfinite(t6)
+                and np.isfinite(safe_float(global_config.get("limite_mancal")))
+                and t6 > safe_float(global_config.get("limite_mancal"))
+            ):
+                return "Alarme"
+
+            if (
+                np.isfinite(t7)
+                and np.isfinite(safe_float(global_config.get("limite_oleo")))
+                and t7 > safe_float(global_config.get("limite_oleo"))
+            ):
+                return "Alarme"
+
+            return "Online"
+
+        df["status"] = df.apply(row_status, axis=1)
+
+        return df
+
+    except Exception as exc:
+        st.error("Erro ao carregar a telemetria.")
+        st.exception(exc)
+        return pd.DataFrame(columns=columns + ["status"])
+
+
+def build_devices_view():
+    """
+    Une a lista cadastrada em dispositivos com a última telemetria.
+    Dispositivo cadastrado sem telemetria aparece como OFFLINE.
+    Dispositivo que transmite mas ainda não está cadastrado também aparece,
+    como 'Sem cadastro', para não esconder dados.
+    """
+
+    devices = load_devices()
+    telemetry = load_telemetry()
+
+    if devices.empty:
+        if telemetry.empty:
+            return pd.DataFrame()
+
+        result = telemetry.copy()
+        result["nome"] = result["device_id"]
+        result["local"] = "Não configurado"
+        result["descricao"] = None
+        result["ordem"] = 999
+        return result
+
+    devices = devices[devices["ativo"] == True].copy()
+
+    if telemetry.empty:
+        result = devices.copy()
+        result["status"] = "Offline"
+        return result
+
+    result = devices.merge(
+        telemetry,
+        on="device_id",
+        how="left",
+        suffixes=("_device", ""),
+    )
+
+    result["nome"] = (
+        result["nome_device"]
+        .fillna(result["device_id"])
+        if "nome_device" in result.columns
+        else result["device_id"]
+    )
+
+    result["local"] = (
+        result["local_device"].fillna("Sem local")
+        if "local_device" in result.columns
+        else "Sem local"
+    )
+
+    result["descricao"] = (
+        result["descricao_device"]
+        if "descricao_device" in result.columns
+        else None
+    )
+
+    result["ordem"] = (
+        result["ordem_device"].fillna(999)
+        if "ordem_device" in result.columns
+        else 999
+    )
+
+    result["status"] = result["status"].fillna("Offline")
+
+    return result
+
+
+@st.cache_data(ttl=30)
+def load_history(device_id, days):
+    if supabase is None or not device_id:
+        return pd.DataFrame()
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+
     try:
-        response = supabase.table('logs_alertas')\
-            .update({'status': 'Reconhecido', 'operador': operador})\
-            .eq('id', alarme_id)\
+        response = (
+            supabase
+            .table("telemetria")
+            .select("*")
+            .eq("device_id", device_id)
+            .gte("recebido_em", start.isoformat())
+            .order("recebido_em", desc=False)
             .execute()
-        
-        get_alarmes.clear()
-        return True
-    except:
-        return False
+        )
 
-def save_config_to_db(limite_mancal=None, limite_oleo=None, limite_pressao=None, limite_rms=None, limite_corrente=None, limite_tensao_min=None, limite_tensao_max=None):
-    if not supabase:
-        return False
-    
+        data = response.data or []
+        if not data:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(data)
+
+        df["timestamp"] = pd.to_datetime(
+            df["recebido_em"], utc=True, errors="coerce"
+        )
+
+        numeric_cols = [
+            "ai004_value",
+            "ai006_value",
+            "ai007_value",
+            "ai008_value",
+            "x_mm_s",
+            "y_mm_s",
+            "z_mm_s",
+            "x_rms",
+            "y_rms",
+            "z_rms",
+        ]
+
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df["pressao_mca"] = df["ai004_value"].apply(bar_to_mca)
+        df["vibra"] = df[["x_mm_s", "y_mm_s", "z_mm_s"]].max(
+            axis=1,
+            skipna=True,
+        )
+
+        return df
+
+    except Exception as exc:
+        st.error("Erro ao carregar histórico.")
+        st.exception(exc)
+        return pd.DataFrame()
+
+
+# ============================================================
+# ALARMES
+# ============================================================
+
+def build_alarms(df):
+    alarms = []
+
+    if df.empty:
+        return pd.DataFrame()
+
+    config = load_global_config()
+
+    for _, row in df.iterrows():
+        device_id = row.get("device_id", "—")
+        when = row.get("recebido_em")
+
+        pressure = safe_float(row.get("ai004_value"))
+        p_limit = safe_float(config.get("limite_pressao"))
+        if np.isfinite(pressure) and np.isfinite(p_limit) and pressure < p_limit:
+            alarms.append({
+                "Equipamento": device_id,
+                "Grandeza": "Pressão",
+                "Valor": pressure,
+                "Limite": p_limit,
+                "Unidade": "bar",
+                "Data/Hora": when,
+            })
+
+        v_limit = safe_float(config.get("limite_rms"))
+        for axis in ["x", "y", "z"]:
+            value = safe_float(row.get(f"{axis}_mm_s"))
+            if np.isfinite(value) and np.isfinite(v_limit) and value > v_limit:
+                alarms.append({
+                    "Equipamento": device_id,
+                    "Grandeza": f"Vibração {axis.upper()}",
+                    "Valor": value,
+                    "Limite": v_limit,
+                    "Unidade": "mm/s RMS",
+                    "Data/Hora": when,
+                })
+
+    return pd.DataFrame(alarms)
+
+
+# ============================================================
+# GRÁFICOS
+# ============================================================
+
+def line_chart(df, columns, labels, title, yaxis):
+    fig = go.Figure()
+
+    for col, label in zip(columns, labels):
+        if col in df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df["timestamp"],
+                    y=df[col],
+                    mode="lines",
+                    name=label,
+                    line={"width": 2},
+                    connectgaps=False,
+                )
+            )
+
+    fig.update_layout(
+        title=title,
+        height=320,
+        margin=dict(l=10, r=10, t=50, b=10),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(15,23,42,.35)",
+        font={"color": "#e2e8f0"},
+        xaxis={"showgrid": True, "gridcolor": "rgba(148,163,184,.12)"},
+        yaxis={
+            "title": yaxis,
+            "showgrid": True,
+            "gridcolor": "rgba(148,163,184,.12)",
+        },
+        hovermode="x unified",
+        legend={"orientation": "h"},
+    )
+
+    return fig
+
+
+def health_score(row):
+    if row.get("status") == "Offline":
+        return 0
+
+    config = load_global_config()
+    score = 100
+
+    vibration = [safe_float(row.get(f"{a}_mm_s")) for a in ["x", "y", "z"]]
+    vibration = [v for v in vibration if np.isfinite(v)]
+
+    vib_limit = safe_float(config.get("limite_rms"))
+    if vibration and np.isfinite(vib_limit):
+        peak = max(vibration)
+        if peak > vib_limit:
+            score -= 35
+        elif peak > vib_limit * 0.7:
+            score -= 15
+
+    t6 = safe_float(row.get("ai006_value"))
+    t6_limit = safe_float(config.get("limite_mancal"))
+    if np.isfinite(t6) and np.isfinite(t6_limit):
+        if t6 > t6_limit:
+            score -= 20
+        elif t6 > t6_limit * 0.9:
+            score -= 10
+
+    t7 = safe_float(row.get("ai007_value"))
+    t7_limit = safe_float(config.get("limite_oleo"))
+    if np.isfinite(t7) and np.isfinite(t7_limit):
+        if t7 > t7_limit:
+            score -= 20
+        elif t7 > t7_limit * 0.9:
+            score -= 10
+
+    pressure = safe_float(row.get("ai004_value"))
+    p_limit = safe_float(config.get("limite_pressao"))
+    if np.isfinite(pressure) and np.isfinite(p_limit) and pressure < p_limit:
+        score -= 25
+
+    return int(max(0, min(100, score)))
+
+
+def health_color(score):
+    if score >= 80:
+        return "#10b981"
+    if score >= 60:
+        return "#f59e0b"
+    return "#ef4444"
+
+
+# ============================================================
+# ATUALIZAÇÃO DE CONFIGURAÇÃO
+# ============================================================
+
+def update_channel(device_id, canal, payload):
+    if supabase is None:
+        return False, "Supabase indisponível."
+
     try:
-        update_data = {}
-        if limite_mancal is not None:
-            update_data['limite_mancal'] = float(limite_mancal)
-        if limite_oleo is not None:
-            update_data['limite_oleo'] = float(limite_oleo)
-        if limite_pressao is not None:
-            update_data['limite_pressao'] = float(limite_pressao)
-        if limite_rms is not None:
-            update_data['limite_rms'] = float(limite_rms)
-        if limite_corrente is not None:
-            update_data['limite_corrente'] = float(limite_corrente)
-        if limite_tensao_min is not None:
-            update_data['limite_tensao_min'] = float(limite_tensao_min)
-        if limite_tensao_max is not None:
-            update_data['limite_tensao_max'] = float(limite_tensao_max)
-        
-        if not update_data:
-            return False
-        
-        response = supabase.table('configuracoes')\
-            .update(update_data)\
-            .eq('id', 1)\
+        (
+            supabase
+            .table("canais_analogicos")
+            .update(payload)
+            .eq("device_id", device_id)
+            .eq("canal", canal)
             .execute()
-        
-        get_config.clear()
-        get_current_data.clear()
-        return True
-    except:
-        return False
+        )
 
-# ============================================================================
-# GERAÇÃO DE RELATÓRIOS
-# ============================================================================
+        load_channel_configs.clear()
+        return True, None
 
-def generate_excel_report(pump_id, local):
-    """Gera relatório Excel"""
-    df_current = get_current_data()
-    pump_data = df_current[(df_current['local'] == local) & (df_current['id'] == pump_id)]
-    
-    if len(pump_data) == 0:
-        return None
-    
-    pump_data = pump_data.iloc[0]
-    hist_df = get_historical_data(pump_id, local, days=7)
-    
-    output = io.BytesIO()
-    
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Sheet 1: Dados Atuais
-        current_info = pd.DataFrame({
-            'Parâmetro': ['Local', 'Bomba', 'Status', 'Pressão (MCA)', 'Temp. Mancal (°C)', 
-                         'Temp. Óleo (°C)', 'Vibração (mm/s)', 'Corrente (A)', 'Potência (kW)',
-                         'Tensão Motor (V)', 'Tensão Rede (V)', 'Horas Operação', 'Última Manutenção'],
-            'Valor': [pump_data['local'], pump_data['id'], pump_data['status'], 
-                     f"{pump_data['pressao']:.2f}", f"{pump_data['mancal']:.2f}",
-                     f"{pump_data['oleo']:.2f}", f"{pump_data['vibra']:.2f}", 
-                     f"{pump_data['corrente']:.2f}", f"{pump_data['potencia']:.2f}",
-                     f"{pump_data['tensao_motor']:.0f}", f"{pump_data['tensao_rede']:.0f}",
-                     pump_data['horas_operacao'], pump_data['ultima_manutencao']]
-        })
-        current_info.to_excel(writer, sheet_name='Dados Atuais', index=False)
-        
-        # Sheet 2: Histórico
-        hist_export = hist_df[['timestamp', 'pressao', 'mancal', 'oleo', 'vibra', 'corrente']].copy()
-        hist_export.columns = ['Data/Hora', 'Pressão (MCA)', 'Temp. Mancal (°C)', 'Temp. Óleo (°C)', 'Vibração (mm/s)', 'Corrente (A)']
-        hist_export.to_excel(writer, sheet_name='Histórico 7 Dias', index=False)
-        
-        # Sheet 3: Estatísticas
-        stats = pd.DataFrame({
-            'Métrica': ['Pressão (MCA)', 'Temp. Mancal (°C)', 'Temp. Óleo (°C)', 'Vibração (mm/s)', 'Corrente (A)'],
-            'Média': [hist_df['pressao'].mean(), hist_df['mancal'].mean(), hist_df['oleo'].mean(), 
-                     hist_df['vibra'].mean(), hist_df['corrente'].mean()],
-            'Mínimo': [hist_df['pressao'].min(), hist_df['mancal'].min(), hist_df['oleo'].min(), 
-                      hist_df['vibra'].min(), hist_df['corrente'].min()],
-            'Máximo': [hist_df['pressao'].max(), hist_df['mancal'].max(), hist_df['oleo'].max(), 
-                      hist_df['vibra'].max(), hist_df['corrente'].max()],
-        })
-        stats.to_excel(writer, sheet_name='Estatísticas', index=False)
-    
-    output.seek(0)
-    return output
+    except Exception as exc:
+        return False, str(exc)
 
-def generate_pdf_report(pump_id, local):
-    """Gera relatório PDF"""
-    df_current = get_current_data()
-    pump_data = df_current[(df_current['local'] == local) & (df_current['id'] == pump_id)]
-    
-    if len(pump_data) == 0:
-        return None
-    
-    pump_data = pump_data.iloc[0]
-    hist_df = get_historical_data(pump_id, local, days=7)
-    
+
+def update_device(device_id, payload):
+    if supabase is None:
+        return False, "Supabase indisponível."
+
+    try:
+        (
+            supabase
+            .table("dispositivos")
+            .update(payload)
+            .eq("device_id", device_id)
+            .execute()
+        )
+
+        load_devices.clear()
+        return True, None
+
+    except Exception as exc:
+        return False, str(exc)
+
+
+# ============================================================
+# RELATÓRIO PDF
+# ============================================================
+
+def generate_pdf(device_id, row, history):
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4)
-    story = []
     styles = getSampleStyleSheet()
-    
-    # Título
-    title = Paragraph(f"<b>Relatório de Operação - {local} | Bomba {pump_id}</b>", styles['Title'])
-    story.append(title)
-    story.append(Spacer(1, 0.3*inch))
-    
-    # Data do relatório
-    date_text = Paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", styles['Normal'])
-    story.append(date_text)
-    story.append(Spacer(1, 0.3*inch))
-    
-    # Dados Atuais
-    subtitle1 = Paragraph("<b>Dados Atuais</b>", styles['Heading2'])
-    story.append(subtitle1)
-    story.append(Spacer(1, 0.2*inch))
-    
-    data_atual = [
-        ['Parâmetro', 'Valor'],
-        ['Status', pump_data['status']],
-        ['Pressão', f"{pump_data['pressao']:.2f} MCA"],
-        ['Temp. Mancal', f"{pump_data['mancal']:.2f} °C"],
-        ['Temp. Óleo', f"{pump_data['oleo']:.2f} °C"],
-        ['Vibração', f"{pump_data['vibra']:.2f} mm/s"],
-        ['Corrente', f"{pump_data['corrente']:.2f} A"],
-        ['Tensão Motor', f"{pump_data['tensao_motor']:.0f} V"],
-        ['Tensão Rede', f"{pump_data['tensao_rede']:.0f} V"],
-        ['Horas Operação', str(pump_data['horas_operacao'])],
+    story = []
+
+    story.append(
+        Paragraph(
+            f"<b>Relatório AXION — {device_id}</b>",
+            styles["Title"],
+        )
+    )
+    story.append(Spacer(1, 0.25 * inch))
+
+    data = [
+        ["Parâmetro", "Valor"],
+        ["Status", str(row.get("status", "—"))],
+        ["Pressão", format_value(row.get("ai004_value"), 2, "bar")],
+        ["Pressão", format_value(bar_to_mca(row.get("ai004_value")), 2, "MCA")],
+        ["AI006", format_value(row.get("ai006_value"), 2, "°C")],
+        ["AI007", format_value(row.get("ai007_value"), 2, "°C")],
+        ["AI008", format_value(row.get("ai008_value"), 2, "°C")],
+        ["Vibração X", format_value(row.get("x_mm_s"), 3, "mm/s RMS")],
+        ["Vibração Y", format_value(row.get("y_mm_s"), 3, "mm/s RMS")],
+        ["Vibração Z", format_value(row.get("z_mm_s"), 3, "mm/s RMS")],
+        ["RMS X", format_value(row.get("x_rms"), 5, "g RMS")],
+        ["RMS Y", format_value(row.get("y_rms"), 5, "g RMS")],
+        ["RMS Z", format_value(row.get("z_rms"), 5, "g RMS")],
     ]
-    
-    table1 = Table(data_atual, colWidths=[3*inch, 3*inch])
-    table1.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    story.append(table1)
-    story.append(Spacer(1, 0.5*inch))
-    
-    # Estatísticas
-    subtitle2 = Paragraph("<b>Estatísticas (Últimos 7 Dias)</b>", styles['Heading2'])
-    story.append(subtitle2)
-    story.append(Spacer(1, 0.2*inch))
-    
-    stats_data = [
-        ['Métrica', 'Média', 'Mínimo', 'Máximo'],
-        ['Pressão (MCA)', f"{hist_df['pressao'].mean():.2f}", f"{hist_df['pressao'].min():.2f}", f"{hist_df['pressao'].max():.2f}"],
-        ['Temp. Mancal (°C)', f"{hist_df['mancal'].mean():.2f}", f"{hist_df['mancal'].min():.2f}", f"{hist_df['mancal'].max():.2f}"],
-        ['Temp. Óleo (°C)', f"{hist_df['oleo'].mean():.2f}", f"{hist_df['oleo'].min():.2f}", f"{hist_df['oleo'].max():.2f}"],
-        ['Vibração (mm/s)', f"{hist_df['vibra'].mean():.2f}", f"{hist_df['vibra'].min():.2f}", f"{hist_df['vibra'].max():.2f}"],
-        ['Corrente (A)', f"{hist_df['corrente'].mean():.2f}", f"{hist_df['corrente'].min():.2f}", f"{hist_df['corrente'].max():.2f}"],
-    ]
-    
-    table2 = Table(stats_data)
-    table2.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    story.append(table2)
-    
+
+    table = Table(data, colWidths=[3 * inch, 3 * inch])
+    table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ])
+    )
+    story.append(table)
+    story.append(Spacer(1, 0.3 * inch))
+
+    if not history.empty:
+        summary = [
+            ["Métrica", "Média", "Mínimo", "Máximo"],
+            [
+                "Pressão (MCA)",
+                f"{history['pressao_mca'].mean():.2f}",
+                f"{history['pressao_mca'].min():.2f}",
+                f"{history['pressao_mca'].max():.2f}",
+            ],
+            [
+                "Vibração (mm/s RMS)",
+                f"{history['vibra'].mean():.3f}",
+                f"{history['vibra'].min():.3f}",
+                f"{history['vibra'].max():.3f}",
+            ],
+        ]
+
+        table2 = Table(summary)
+        table2.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 1, colors.black),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ])
+        )
+        story.append(table2)
+
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-# ============================================================================
-# VISUALIZAÇÕES
-# ============================================================================
 
-def create_gauge_chart(value, max_value, title, color, warning_threshold=None, critical_threshold=None):
-    if critical_threshold and value >= critical_threshold:
-        gauge_color = "#ef4444"
-    elif warning_threshold and value >= warning_threshold:
-        gauge_color = "#f59e0b"
-    else:
-        gauge_color = color
-    
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=value,
-        domain={'x': [0, 1], 'y': [0, 1]},
-        title={'text': title, 'font': {'size': 16, 'color': '#e2e8f0'}},
-        number={'font': {'size': 32, 'color': gauge_color}},
-        gauge={
-            'axis': {'range': [None, max_value], 'tickwidth': 1, 'tickcolor': "#64748b"},
-            'bar': {'color': gauge_color, 'thickness': 0.75},
-            'bgcolor': "rgba(15, 23, 42, 0.5)",
-            'borderwidth': 2,
-            'bordercolor': "#1e293b",
-            'steps': [
-                {'range': [0, warning_threshold if warning_threshold else max_value*0.7], 'color': 'rgba(16, 185, 129, 0.1)'},
-                {'range': [warning_threshold if warning_threshold else max_value*0.7, critical_threshold if critical_threshold else max_value*0.9], 'color': 'rgba(245, 158, 11, 0.1)'},
-                {'range': [critical_threshold if critical_threshold else max_value*0.9, max_value], 'color': 'rgba(239, 68, 68, 0.1)'}
-            ],
-        }
-    ))
-    
-    fig.update_layout(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font={'color': "#e2e8f0"},
-        height=250,
-        margin=dict(l=20, r=20, t=50, b=20)
-    )
-    
-    return fig
-
-def create_time_series_chart(df, column, title, color, y_label, show_threshold=None):
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=df['timestamp'],
-        y=df[column],
-        mode='lines',
-        name=title,
-        line=dict(color=color, width=2.5),
-        fill='tozeroy',
-        fillcolor=f'rgba({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)}, 0.1)'
-    ))
-    
-    if show_threshold:
-        fig.add_hline(
-            y=show_threshold,
-            line_dash="dash",
-            line_color="#ef4444",
-            line_width=2,
-            annotation_text=f"Limite: {show_threshold}",
-            annotation_position="right"
-        )
-    
-    fig.update_layout(
-        title=None,
-        xaxis_title=None,
-        yaxis_title=y_label,
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(15, 23, 42, 0.5)',
-        font={'color': '#e2e8f0'},
-        height=300,
-        margin=dict(l=10, r=10, t=10, b=10),
-        hovermode='x unified',
-        xaxis=dict(showgrid=True, gridcolor='rgba(100, 116, 139, 0.1)'),
-        yaxis=dict(showgrid=True, gridcolor='rgba(100, 116, 139, 0.1)')
-    )
-    
-    return fig
-
-def get_health_score(pump_data):
-    try:
-        score = 100
-        config = get_config()
-        
-        if pump_data['status'] == 'Offline':
-            return 0
-        elif pump_data['status'] == 'Alarme':
-            score -= 40
-        
-        vibra = float(pump_data.get('vibra', 0))
-        if vibra > config['limite_rms']:
-            score -= 30
-        elif vibra > config['limite_rms'] * 0.7:
-            score -= 15
-        
-        mancal = float(pump_data.get('mancal', 0))
-        if mancal > config['limite_mancal']:
-            score -= 20
-        elif mancal > config['limite_mancal'] * 0.9:
-            score -= 10
-        
-        oleo = float(pump_data.get('oleo', 0))
-        if oleo > config['limite_oleo']:
-            score -= 20
-        elif oleo > config['limite_oleo'] * 0.9:
-            score -= 10
-        
-        pressao = float(pump_data.get('pressao', 0))
-        if pressao < config['limite_pressao_mca']:
-            score -= 25
-        
-        corrente = float(pump_data.get('corrente', 0))
-        if corrente > config['limite_corrente']:
-            score -= 20
-        
-        return max(0, score)
-    except:
-        return 50
-
-def get_health_color(score):
-    if score >= 80:
-        return "#10b981"
-    elif score >= 60:
-        return "#f59e0b"
-    else:
-        return "#ef4444"
-
-# ============================================================================
-# CSS MODERNO E PROFISSIONAL
-# ============================================================================
-
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-    
-    :root {
-        --bg-primary: #0f172a;
-        --bg-secondary: #1e293b;
-        --bg-card: #1e293b;
-        --border-color: #334155;
-        --accent-blue: #3b82f6;
-        --accent-green: #10b981;
-        --accent-red: #ef4444;
-        --accent-orange: #f59e0b;
-        --text-primary: #f1f5f9;
-        --text-secondary: #cbd5e1;
-    }
-    
-    .stApp {
-        background: linear-gradient(135deg, var(--bg-primary) 0%, #0a0e1a 100%);
-        font-family: 'Inter', sans-serif;
-        color: var(--text-primary);
-    }
-    
-    [data-testid="stHeader"] { display: none !important; }
-    .main .block-container { padding-top: 1.5rem !important; max-width: 100% !important; }
-    
-    /* BOTÕES MODERNOS */
-    .stButton > button {
-        background: linear-gradient(135deg, var(--accent-blue), #2563eb) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 12px !important;
-        padding: 0.75rem 1.5rem !important;
-        font-weight: 600 !important;
-        font-size: 0.95rem !important;
-        letter-spacing: 0.5px !important;
-        box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3) !important;
-        transition: all 0.3s ease !important;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 6px 12px rgba(59, 130, 246, 0.4) !important;
-        background: linear-gradient(135deg, #2563eb, var(--accent-blue)) !important;
-    }
-    
-    .stButton > button:active {
-        transform: translateY(0) !important;
-    }
-    
-    /* CARDS MODERNOS */
-    .modern-card {
-        background: linear-gradient(135deg, var(--bg-card) 0%, #1a2332 100%);
-        border: 1px solid var(--border-color);
-        border-radius: 16px;
-        padding: 1.5rem;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3), 0 0 20px rgba(59, 130, 246, 0.1);
-        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        position: relative;
-        overflow: hidden;
-    }
-    
-    .modern-card::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 3px;
-        background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
-    }
-    
-    .modern-card:hover {
-        transform: translateY(-6px);
-        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4), 0 0 30px rgba(59, 130, 246, 0.2);
-        border-color: var(--accent-blue);
-    }
-    
-    /* KPI CARDS */
-    .kpi-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 1.25rem;
-        text-align: center;
-        transition: all 0.3s ease;
-    }
-    
-    .kpi-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-        border-color: var(--accent-blue);
-    }
-    
-    .kpi-value {
-        font-size: 2rem;
-        font-weight: 800;
-        letter-spacing: -0.5px;
-    }
-    
-    /* STATUS BADGES */
-    .status-Online { border-left: 4px solid var(--accent-green); }
-    .status-Alarme { 
-        border-left: 4px solid var(--accent-red);
-        animation: pulse-red 2s infinite;
-    }
-    .status-Offline { border-left: 4px solid #64748b; }
-    
-    @keyframes pulse-red {
-        0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-        50% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-    }
-    
-    /* ALARM CARD */
-    .alarm-card {
-        background: var(--bg-card);
-        border-left: 4px solid var(--accent-red);
-        border-radius: 12px;
-        padding: 1.25rem;
-        margin-bottom: 1rem;
-        transition: all 0.3s ease;
-    }
-    
-    .alarm-card:hover {
-        transform: translateX(4px);
-        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
-    }
-    
-    .alarm-card.reconhecido {
-        border-left-color: var(--accent-green);
-        opacity: 0.7;
-    }
-    
-    /* COLORS */
-    .txt-green { color: var(--accent-green) !important; }
-    .txt-red { color: var(--accent-red) !important; }
-    .txt-blue { color: var(--accent-blue) !important; }
-    .txt-orange { color: var(--accent-orange) !important; }
-</style>
-""", unsafe_allow_html=True)
-
-# ============================================================================
-# ESTADO
-# ============================================================================
-
-if 'view' not in st.session_state:
-    st.session_state.view = 'dashboard'
-if 'selected_pump_id' not in st.session_state:
-    st.session_state.selected_pump_id = None
-if 'selected_local' not in st.session_state:
-    st.session_state.selected_local = None
-if 'filter_local' not in st.session_state:
-    st.session_state.filter_local = 'Todos'
-if 'date_range' not in st.session_state:
-    st.session_state.date_range = 7
-if 'last_refresh' not in st.session_state:
-    st.session_state.last_refresh = time.time()
-
-# Auto-refresh
-current_time = time.time()
-time_since_refresh = int(current_time - st.session_state.last_refresh)
-time_until_refresh = max(0, 30 - time_since_refresh)
-
-if time_since_refresh >= 30 and st.session_state.view == 'dashboard':
-    st.session_state.last_refresh = current_time
-    get_current_data.clear()
-    st.rerun()
-
-# ============================================================================
-# HEADER
-# ============================================================================
-
-df = get_current_data()
-
-st.markdown(f"""
-<div class="modern-card" style='margin-bottom: 2rem;'>
-    <div style='display: flex; justify-content: space-between; align-items: center;'>
-        <div>
-            <h1 style='margin: 0; font-size: 2rem; font-weight: 800;'>GS INIMA | <span style='color: var(--accent-blue);'>SISTEMAS</span></h1>
-            <p style='margin: 0.5rem 0 0 0; color: var(--text-secondary); font-size: 0.9rem;'>Sistema de Monitoramento Industrial v4.0</p>
-        </div>
-        <div style='display: flex; gap: 10px; align-items: center;'>
-            <span style='background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: var(--accent-green); padding: 8px 16px; border-radius: 12px; font-size: 0.85rem; font-weight: 600;'>
-                ● ONLINE
-            </span>
-            <span style='background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: var(--accent-blue); padding: 8px 16px; border-radius: 12px; font-size: 0.85rem; font-weight: 600;'>
-                🔄 {time_until_refresh}s
-            </span>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# ============================================================================
+# ============================================================
 # NAVEGAÇÃO
-# ============================================================================
+# ============================================================
 
-col_nav1, col_nav2, col_nav3 = st.columns([1, 2, 1])
+top = st.columns([2, 1, 1, 1])
 
-with col_nav2:
-    n1, n2, n3, n4, n5 = st.columns(5)
-    
-    with n1:
-        if st.button("📊 DASHBOARD", key="nav_dash", use_container_width=True):
-            st.session_state.view = 'dashboard'
-            st.session_state.selected_pump_id = None
-            st.rerun()
-    
-    with n2:
-        disabled = st.session_state.selected_pump_id is None
-        if st.button("📈 DETALHES", key="nav_det", use_container_width=True, disabled=disabled):
-            st.session_state.view = 'detalhes'
-            st.rerun()
-    
-    with n3:
-        if st.button("🚨 ALARMES", key="nav_alarm", use_container_width=True):
-            st.session_state.view = 'alarmes'
-            st.rerun()
-    
-    with n4:
-        if st.button("📄 RELATÓRIOS", key="nav_rel", use_container_width=True):
-            st.session_state.view = 'relatorios'
-            st.rerun()
-    
-    with n5:
-        if st.button("⚙️ CONFIG", key="nav_config", use_container_width=True):
-            st.session_state.view = 'config'
-            st.rerun()
+with top[0]:
+    st.markdown(
+        """
+        <div class="top-card">
+            <div style="font-size:2rem;font-weight:850;">
+                AXION <span style="color:#3b82f6;">| Monitoramento Industrial</span>
+            </div>
+            <div class="muted">Telemetria via HiveMQ → Supabase • Atualização automática: 30 s</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-st.markdown("---")
+with top[1]:
+    if st.button(
+        "🏠  Dashboard",
+        use_container_width=True,
+        type="primary" if st.session_state.view == "dashboard" else "secondary",
+    ):
+        st.session_state.view = "dashboard"
+        st.rerun()
 
-# ============================================================================
-# VIEW: DASHBOARD
-# ============================================================================
+with top[2]:
+    if st.button(
+        "📊  Detalhes",
+        use_container_width=True,
+        type="primary" if st.session_state.view == "details" else "secondary",
+    ):
+        st.session_state.view = "details"
+        st.rerun()
 
-if st.session_state.view == 'dashboard':
-    
-    # Filtros
-    refresh_col, filter_col = st.columns([1, 9])
-    
-    with refresh_col:
-        if st.button("🔄", key="manual_refresh", use_container_width=True):
-            get_current_data.clear()
-            st.session_state.last_refresh = time.time()
-            st.rerun()
-    
-    with filter_col:
-        locais_ordenados = ['Todos'] + sorted(df['local'].unique().tolist())
-        sel_local = st.selectbox("📍 Localização", locais_ordenados, index=0)
-        if sel_local != st.session_state.filter_local:
-            st.session_state.filter_local = sel_local
-            st.rerun()
-    
-    # Filtragem
-    if st.session_state.filter_local == 'Todos':
-        df_show = df
-        display_locais = sorted(df['local'].unique().tolist())
+with top[3]:
+    if st.button(
+        "⚙️  Configuração",
+        use_container_width=True,
+        type="primary" if st.session_state.view == "config" else "secondary",
+    ):
+        st.session_state.view = "config"
+        st.rerun()
+
+st.caption(
+    f"Atualização automática a cada {REFRESH_SECONDS}s • "
+    f"Última atualização: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+)
+
+
+# ============================================================
+# DADOS ATUAIS
+# ============================================================
+
+device_rows = build_devices_view()
+channel_configs = load_channel_configs()
+
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+if st.session_state.view == "dashboard":
+
+    st.markdown("## Bombas")
+
+    if device_rows.empty:
+        st.info(
+            "Nenhum dispositivo cadastrado. "
+            "Quando cadastrarmos as bombas em 'Configuração', "
+            "elas aparecerão aqui automaticamente."
+        )
     else:
-        df_show = df[df['local'] == st.session_state.filter_local]
-        display_locais = [st.session_state.filter_local]
-    
-    # KPIs
-    st.markdown("### 📊 Indicadores Gerais")
-    df_online = df_show[df_show['status'] == 'Online']
-    
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    
-    with k1:
-        total = len(df_show)
-        online = len(df_online)
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-green">{online}<small>/{total}</small></div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Bombas Ativas</div></div>', unsafe_allow_html=True)
-    
-    with k2:
-        avg_p = df_online['pressao'].mean() if len(df_online) > 0 else 0
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-blue">{avg_p:.1f}<small> MCA</small></div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Pressão Média</div></div>', unsafe_allow_html=True)
-    
-    with k3:
-        avg_m = df_online['mancal'].mean() if len(df_online) > 0 else 0
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{avg_m:.1f}<small> °C</small></div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Temp. Mancal</div></div>', unsafe_allow_html=True)
-    
-    with k4:
-        avg_o = df_online['oleo'].mean() if len(df_online) > 0 else 0
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{avg_o:.1f}<small> °C</small></div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Temp. Óleo</div></div>', unsafe_allow_html=True)
-    
-    with k5:
-        avg_c = df_online['corrente'].mean() if len(df_online) > 0 else 0
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-orange">{avg_c:.1f}<small> A</small></div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Corrente Média</div></div>', unsafe_allow_html=True)
-    
-    with k6:
-        alarmes = len(df_show[df_show['status'] == 'Alarme'])
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-red">{alarmes}</div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Alarmes Ativos</div></div>', unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Cards das bombas
-    for loc in display_locais:
-        st.markdown(f'### {loc}')
-        subset = df_show[df_show['local'] == loc]
-        
-        if len(subset) == 0:
-            st.info(f"Nenhuma bomba em {loc}")
-            continue
-        
-        cols = st.columns(min(3, len(subset)))
-        
-        for i, row in enumerate(subset.to_dict('records')):
-            with cols[i % len(cols)]:
-                health = get_health_score(row)
-                health_color = get_health_color(health)
+        total = len(device_rows)
+        online = int((device_rows["status"] == "Online").sum())
+        alarms = int((device_rows["status"] == "Alarme").sum())
 
-                config = get_config()
-                icon_v = "⚠️" if row['vibra'] > config['limite_rms'] * 0.7 else "✅"
-                icon_m = "🔥" if row['mancal'] > config['limite_mancal'] * 0.9 else "🌡️"
-                icon_o = "🔥" if row['oleo'] > config['limite_oleo'] * 0.9 else "💧"
-                icon_c = "⚠️" if row['corrente'] > config['limite_corrente'] * 0.9 else "⚡"
+        k1, k2, k3 = st.columns(3)
 
-                # Pré-computar variáveis para evitar expressões aninhadas dentro do f-string
-                # (expressões como {"a" if x else "b"} dentro de f-strings causam falha silenciosa no Streamlit)
-                status_color = (
-                    "var(--accent-green)" if row["status"] == "Online"
-                    else "var(--accent-red)" if row["status"] == "Alarme"
-                    else "#64748b"
+        with k1:
+            st.markdown(
+                f"""
+                <div class="kpi">
+                    <div class="small">DISPOSITIVOS</div>
+                    <div class="kpi-value">{total}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with k2:
+            st.markdown(
+                f"""
+                <div class="kpi">
+                    <div class="small">ONLINE</div>
+                    <div class="kpi-value" style="color:#10b981;">{online}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with k3:
+            st.markdown(
+                f"""
+                <div class="kpi">
+                    <div class="small">ALARMES</div>
+                    <div class="kpi-value" style="color:#ef4444;">{alarms}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        locations = (
+            device_rows["local"]
+            .fillna("Sem local")
+            .astype(str)
+            .replace("", "Sem local")
+            .unique()
+            .tolist()
+        )
+
+        locations = sorted(
+            locations,
+            key=lambda x: str(x).lower()
+        )
+
+        for location in locations:
+            subset = (
+                device_rows[
+                    device_rows["local"].astype(str) == str(location)
+                ]
+                .sort_values(["ordem", "nome"])
+            )
+
+            st.markdown(
+                f"<div class='location-title'>LOCAL: {location}</div>",
+                unsafe_allow_html=True,
+            )
+
+            # 3 cards por linha, preparado para as 6 bombas.
+            for start in range(0, len(subset), 3):
+                row_items = subset.iloc[start:start + 3]
+                columns = st.columns(3)
+
+                for index, (_, row) in enumerate(row_items.iterrows()):
+                    with columns[index]:
+                        device_id = str(row.get("device_id", "—"))
+                        name = (
+                            str(row.get("nome"))
+                            if pd.notna(row.get("nome"))
+                            and str(row.get("nome")).strip()
+                            else device_id
+                        )
+
+                        score = health_score(row)
+                        color = health_color(score)
+
+                        pressure = safe_float(row.get("ai004_value"))
+                        pressure_mca = bar_to_mca(pressure)
+
+                        last = row.get("recebido_em")
+                        last_text = (
+                            pd.to_datetime(last).strftime("%d/%m/%Y %H:%M:%S")
+                            if pd.notna(last)
+                            else "sem leitura"
+                        )
+
+                        def temp_metric(canal, fallback):
+                            cfg = channel_configs.get((device_id, canal), {})
+                            label = channel_display_name(cfg, canal)
+                            value = row.get(channel_field(canal))
+                            unit = channel_unit(cfg, fallback)
+                            return label, format_value(value, 1, unit)
+
+                        temp6_label, temp6_value = temp_metric("AI006", "°C")
+                        temp7_label, temp7_value = temp_metric("AI007", "°C")
+                        temp8_label, temp8_value = temp_metric("AI008", "°C")
+
+                        vibration_values = [
+                            safe_float(row.get("x_mm_s")),
+                            safe_float(row.get("y_mm_s")),
+                            safe_float(row.get("z_mm_s")),
+                        ]
+                        vibration_values = [
+                            x for x in vibration_values if np.isfinite(x)
+                        ]
+                        vibration_max = max(vibration_values) if vibration_values else np.nan
+
+                        # Pressão é exibida em bar e MCA.
+                        pressure_text = format_value(pressure, 2, "bar")
+                        mca_text = format_value(pressure_mca, 1, "MCA")
+
+                        # Renderização nativa do Streamlit.
+                        # Evitamos HTML livre dentro do cartão para impedir
+                        # que o Streamlit exiba as tags como texto.
+                        with st.container(border=True):
+
+                            header_left, header_right = st.columns([3, 1])
+
+                            with header_left:
+                                st.caption(str(location))
+                                st.subheader(name)
+                                st.caption(device_id)
+
+                            with header_right:
+                                status = str(row.get("status", "Offline"))
+                                if status == "Online":
+                                    st.success("ONLINE")
+                                elif status == "Alarme":
+                                    st.error("ALARME")
+                                else:
+                                    st.warning("OFFLINE")
+
+                                st.metric(
+                                    "Saúde",
+                                    str(score),
+                                )
+
+                            st.divider()
+
+                            m1, m2 = st.columns(2)
+
+                            with m1:
+                                st.metric(
+                                    "Pressão",
+                                    pressure_text,
+                                    mca_text,
+                                )
+
+                            with m2:
+                                st.metric(
+                                    "Vibração máxima",
+                                    format_value(vibration_max, 3, "mm/s"),
+                                    "RMS",
+                                )
+
+                            st.caption("Temperaturas")
+
+                            t1, t2, t3 = st.columns(3)
+
+                            with t1:
+                                st.metric(
+                                    temp6_label,
+                                    temp6_value,
+                                )
+
+                            with t2:
+                                st.metric(
+                                    temp7_label,
+                                    temp7_value,
+                                )
+
+                            with t3:
+                                st.metric(
+                                    temp8_label,
+                                    temp8_value,
+                                )
+
+                            st.caption("Vibração por eixo — mm/s RMS")
+
+                            v1, v2, v3 = st.columns(3)
+
+                            with v1:
+                                st.metric(
+                                    "X",
+                                    format_value(row.get("x_mm_s"), 3),
+                                )
+
+                            with v2:
+                                st.metric(
+                                    "Y",
+                                    format_value(row.get("y_mm_s"), 3),
+                                )
+
+                            with v3:
+                                st.metric(
+                                    "Z",
+                                    format_value(row.get("z_mm_s"), 3),
+                                )
+
+                            st.caption(
+                                f"Última leitura: {last_text}"
+                            )
+
+                        if st.button(
+                            "Ver detalhes",
+                            key=f"details_{device_id}",
+                            use_container_width=True,
+                        ):
+                            st.session_state.device_id = device_id
+                            st.session_state.view = "details"
+                            st.rerun()
+
+
+# ============================================================
+# DETALHES
+# ============================================================
+
+elif st.session_state.view == "details":
+
+    devices = device_rows["device_id"].astype(str).tolist() if not device_rows.empty else []
+
+    if not devices:
+        st.info("Nenhum dispositivo disponível.")
+    else:
+        current = (
+            st.session_state.device_id
+            if st.session_state.device_id in devices
+            else devices[0]
+        )
+
+        selected = st.selectbox(
+            "Equipamento",
+            devices,
+            index=devices.index(current),
+        )
+
+        row_matches = device_rows[
+            device_rows["device_id"].astype(str) == selected
+        ]
+
+        if row_matches.empty:
+            st.warning("Dispositivo sem telemetria.")
+        else:
+            row = row_matches.iloc[0]
+
+            period_label = st.selectbox(
+                "Período",
+                ["6 horas", "24 horas", "3 dias", "7 dias"],
+                index=1,
+            )
+
+            period_days = {
+                "6 horas": 0.25,
+                "24 horas": 1,
+                "3 dias": 3,
+                "7 dias": 7,
+            }[period_label]
+
+            history = load_history(selected, period_days)
+
+            st.markdown(
+                f"## {row.get('nome', selected)}"
+            )
+            st.markdown(
+                f"{status_badge(str(row.get('status', 'Offline')))} "
+                f"<span class='muted'>{selected}</span>",
+                unsafe_allow_html=True,
+            )
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            with c1:
+                st.metric(
+                    "Pressão",
+                    format_value(row.get("ai004_value"), 2, "bar"),
                 )
-                status_label = row["status"].upper()
-                pump_local   = row["local"]
-                pump_id      = row["id"]
-                pump_status  = row["status"]
-                pressao_val  = f"{row['pressao']:.1f}"
-                mancal_val   = f"{row['mancal']:.1f}"
-                oleo_val     = f"{row['oleo']:.1f}"
-                vibra_val    = f"{row['vibra']:.2f}"
-                corrente_val = f"{row['corrente']:.1f}"
-                potencia_val = f"{row['potencia']:.1f}"
-                tensao_m_val = f"{row['tensao_motor']:.0f}"
-                tensao_r_val = f"{row['tensao_rede']:.0f}"
 
-                card_html = (
-                    f"<div class='modern-card status-{pump_status}'>"
-                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;'>"
-                    f"<div>"
-                    f"<div style='font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;'>{pump_local}</div>"
-                    f"<div style='font-size:1.5rem;font-weight:800;'>BOMBA {pump_id}</div>"
-                    f"</div>"
-                    f"<div style='text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>SAÚDE</div>"
-                    f"<div style='font-size:2rem;font-weight:800;color:{health_color};'>{health}</div>"
-                    f"</div></div>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:8px 12px;border-radius:8px;margin-bottom:1rem;text-align:center;'>"
-                    f"<span style='font-size:0.85rem;font-weight:600;color:{status_color};'>● {status_label}</span>"
-                    f"</div>"
-                    f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1rem;'>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>⚙️ Pressão</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{pressao_val}<small style='font-size:0.7em;'> MCA</small></div></div>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_m} Mancal</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{mancal_val}<small style='font-size:0.7em;'> °C</small></div></div>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_o} Óleo</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{oleo_val}<small style='font-size:0.7em;'> °C</small></div></div>"
-                    f"</div>"
-                    f"<div style='display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:1rem;'>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_v} Vibração</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{vibra_val}<small style='font-size:0.7em;'> mm/s</small></div></div>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>{icon_c} Corrente</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{corrente_val}<small style='font-size:0.7em;'> A</small></div></div>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>🔌 Potência</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{potencia_val}<small style='font-size:0.7em;'> kW</small></div></div>"
-                    f"</div>"
-                    f"<div style='display:grid;grid-template-columns:1fr 1fr;gap:10px;'>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>🔋 V. Motor</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{tensao_m_val}<small style='font-size:0.7em;'> V</small></div></div>"
-                    f"<div style='background:rgba(15,23,42,0.5);padding:10px;border-radius:8px;text-align:center;'>"
-                    f"<div style='font-size:0.7rem;color:var(--text-secondary);'>⚡ V. Rede</div>"
-                    f"<div style='font-size:1.1rem;font-weight:700;'>{tensao_r_val}<small style='font-size:0.7em;'> V</small></div></div>"
-                    f"</div></div>"
+            with c2:
+                st.metric(
+                    "Pressão",
+                    format_value(bar_to_mca(row.get("ai004_value")), 1, "MCA"),
                 )
-                st.markdown(card_html, unsafe_allow_html=True)
-                st.markdown("<div style='height:10px;'></div>", unsafe_allow_html=True)
 
-                if st.button("📊 Ver Detalhes", key=f"btn_{row['local']}_{row['id']}", use_container_width=True):
-                    st.session_state.selected_pump_id = row['id']
-                    st.session_state.selected_local = row['local']
-                    st.session_state.view = 'detalhes'
+            with c3:
+                st.metric(
+                    "Vibração X",
+                    format_value(row.get("x_mm_s"), 3, "mm/s"),
+                )
+
+            with c4:
+                st.metric(
+                    "Vibração Z",
+                    format_value(row.get("z_mm_s"), 3, "mm/s"),
+                )
+
+            st.markdown("### Temperaturas")
+            t1, t2, t3 = st.columns(3)
+
+            for canal, container in [
+                ("AI006", t1),
+                ("AI007", t2),
+                ("AI008", t3),
+            ]:
+                cfg = channel_configs.get((selected, canal), {})
+                with container:
+                    st.metric(
+                        channel_display_name(cfg, canal),
+                        format_value(
+                            row.get(channel_field(canal)),
+                            1,
+                            channel_unit(cfg, "°C"),
+                        ),
+                    )
+
+            st.markdown("### Vibração")
+            if not history.empty:
+                st.plotly_chart(
+                    line_chart(
+                        history,
+                        ["x_mm_s", "y_mm_s", "z_mm_s"],
+                        ["X", "Y", "Z"],
+                        "Velocidade de vibração",
+                        "mm/s RMS",
+                    ),
+                    use_container_width=True,
+                )
+
+                st.plotly_chart(
+                    line_chart(
+                        history,
+                        ["x_rms", "y_rms", "z_rms"],
+                        ["X RMS", "Y RMS", "Z RMS"],
+                        "Aceleração RMS",
+                        "g RMS",
+                    ),
+                    use_container_width=True,
+                )
+
+                st.plotly_chart(
+                    line_chart(
+                        history,
+                        ["pressao_mca"],
+                        ["Pressão"],
+                        "Pressão",
+                        "MCA",
+                    ),
+                    use_container_width=True,
+                )
+
+                st.plotly_chart(
+                    line_chart(
+                        history,
+                        ["ai006_value", "ai007_value", "ai008_value"],
+                        [
+                            channel_display_name(
+                                channel_configs.get((selected, "AI006"), {}),
+                                "AI006",
+                            ),
+                            channel_display_name(
+                                channel_configs.get((selected, "AI007"), {}),
+                                "AI007",
+                            ),
+                            channel_display_name(
+                                channel_configs.get((selected, "AI008"), {}),
+                                "AI008",
+                            ),
+                        ],
+                        "Temperaturas",
+                        "°C",
+                    ),
+                    use_container_width=True,
+                )
+            else:
+                st.info("Sem dados históricos para o período selecionado.")
+
+
+# ============================================================
+# CONFIGURAÇÃO
+# ============================================================
+
+elif st.session_state.view == "config":
+
+    st.markdown("## Configuração")
+
+    devices = load_devices()
+
+    st.markdown("### Equipamentos")
+
+    with st.expander("➕ Cadastrar novo equipamento", expanded=False):
+        st.caption(
+            "Cadastre o device_id real do AXION. Não invente o ID: use o mesmo "
+            "device_id que aparece no payload MQTT."
+        )
+
+        with st.form("new_device_form"):
+            new_device_id = st.text_input(
+                "Device ID",
+                placeholder="Ex.: AXION-001",
+            )
+            new_device_name = st.text_input(
+                "Nome exibido",
+                placeholder="Ex.: Bomba 01",
+            )
+            new_device_location = st.selectbox(
+                "Local",
+                ["Jacutinga", "Intermédiaria"],
+            )
+            new_device_description = st.text_input(
+                "Descrição",
+                placeholder="Ex.: Captação principal",
+            )
+            new_device_order = st.number_input(
+                "Ordem",
+                min_value=1,
+                value=1,
+                step=1,
+            )
+            new_device_active = st.checkbox(
+                "Equipamento ativo",
+                value=True,
+            )
+
+            create_device = st.form_submit_button(
+                "Cadastrar equipamento",
+                type="primary",
+            )
+
+        if create_device:
+            if not new_device_id.strip():
+                st.error("Informe o Device ID.")
+            elif supabase is None:
+                st.error("Supabase indisponível.")
+            else:
+                try:
+                    (
+                        supabase
+                        .table("dispositivos")
+                        .insert({
+                            "device_id": new_device_id.strip(),
+                            "nome": new_device_name.strip() or new_device_id.strip(),
+                            "local": new_device_location,
+                            "descricao": new_device_description.strip() or None,
+                            "ativo": new_device_active,
+                            "ordem": int(new_device_order),
+                        })
+                        .execute()
+                    )
+
+                    load_devices.clear()
+                    st.success(f"{new_device_id.strip()} cadastrado.")
                     st.rerun()
 
-# ============================================================================
-# VIEW: DETALHES
-# ============================================================================
+                except Exception as exc:
+                    st.error("Não foi possível cadastrar o equipamento.")
+                    st.exception(exc)
 
-elif st.session_state.view == 'detalhes':
-    
-    if not st.session_state.selected_pump_id or not st.session_state.selected_local:
-        st.warning("Selecione uma bomba no Dashboard")
-        if st.button("← Voltar ao Dashboard"):
-            st.session_state.view = 'dashboard'
-            st.rerun()
+
+    if devices.empty:
+        st.info(
+            "A tabela dispositivos ainda não possui registros. "
+            "Crie o primeiro dispositivo no Supabase para habilitar esta tela."
+        )
     else:
-        # Seletores
-        nav_col1, nav_col2, nav_col3 = st.columns([2, 2, 6])
-        
-        with nav_col1:
-            locais = sorted(df['local'].unique().tolist())
-            current_local = st.session_state.selected_local if st.session_state.selected_local in locais else locais[0]
-            new_local = st.selectbox("📍 Local", locais, index=locais.index(current_local) if current_local in locais else 0)
-        
-        with nav_col2:
-            bombas = sorted(df[df['local'] == new_local]['id'].unique().tolist())
-            current_pump = st.session_state.selected_pump_id if st.session_state.selected_pump_id in bombas else bombas[0]
-            new_pump = st.selectbox("🔧 Bomba", bombas, index=bombas.index(current_pump) if current_pump in bombas else 0)
-        
-        with nav_col3:
-            date_ranges = {
-                "Últimas 6 horas": 0.25,
-                "Último dia": 1,
-                "Últimos 3 dias": 3,
-                "Última semana": 7,
-            }
-            selected_range = st.selectbox("📅 Período", list(date_ranges.keys()), index=2)
-            st.session_state.date_range = date_ranges[selected_range]
-        
-        if new_local != st.session_state.selected_local or new_pump != st.session_state.selected_pump_id:
-            st.session_state.selected_local = new_local
-            st.session_state.selected_pump_id = new_pump
-            st.rerun()
-        
-        pump_data = df[(df['local'] == st.session_state.selected_local) & (df['id'] == st.session_state.selected_pump_id)]
-        
-        if len(pump_data) == 0:
-            st.error("Bomba não encontrada")
-        else:
-            pump_data = pump_data.iloc[0]
-            historical_df = get_historical_data(st.session_state.selected_pump_id, st.session_state.selected_local, days=st.session_state.date_range)
-            
-            st.markdown("---")
-            
-            health = get_health_score(pump_data)
-            
-            st.markdown(f"## {pump_data['local']} | BOMBA {pump_data['id']}")
-            st.markdown(f"**Status:** {pump_data['status']} | **Saúde:** {health}/100")
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Gauges
-            st.markdown("### 🎯 Indicadores em Tempo Real")
-            g1, g2, g3, g4, g5 = st.columns(5)
-            
-            config = get_config()
-            
-            with g1:
-                st.plotly_chart(create_gauge_chart(pump_data['vibra'], 10.0, "Vibração (mm/s)", "#10b981", warning_threshold=config['limite_rms']*0.7, critical_threshold=config['limite_rms']), use_container_width=True)
-            
-            with g2:
-                st.plotly_chart(create_gauge_chart(pump_data['pressao'], 50, "Pressão (MCA)", "#3b82f6", warning_threshold=config['limite_pressao_mca']*1.2, critical_threshold=config['limite_pressao_mca']), use_container_width=True)
-            
-            with g3:
-                st.plotly_chart(create_gauge_chart(pump_data['mancal'], 100, "Temp. Mancal (°C)", "#f59e0b", warning_threshold=config['limite_mancal']*0.9, critical_threshold=config['limite_mancal']), use_container_width=True)
-            
-            with g4:
-                st.plotly_chart(create_gauge_chart(pump_data['oleo'], 100, "Temp. Óleo (°C)", "#ef4444", warning_threshold=config['limite_oleo']*0.9, critical_threshold=config['limite_oleo']), use_container_width=True)
-            
-            with g5:
-                st.plotly_chart(create_gauge_chart(pump_data['corrente'], 100, "Corrente (A)", "#8b5cf6", warning_threshold=config['limite_corrente']*0.9, critical_threshold=config['limite_corrente']), use_container_width=True)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # Gráficos
-            st.markdown("### 📈 Tendências Históricas")
-            
-            tab1, tab2, tab3, tab4 = st.tabs(["🌊 Vibração", "⚙️ Pressão", "🌡️ Temperaturas", "⚡ Corrente"])
-            
-            with tab1:
-                st.plotly_chart(create_time_series_chart(historical_df, 'vibra', 'Vibração', '#10b981', 'Vibração (mm/s)', show_threshold=config['limite_rms']), use_container_width=True)
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Atual", f"{pump_data['vibra']:.2f} mm/s")
-                c2.metric("Média", f"{historical_df['vibra'].mean():.2f} mm/s")
-                c3.metric("Máximo", f"{historical_df['vibra'].max():.2f} mm/s")
-                c4.metric("Mínimo", f"{historical_df['vibra'].min():.2f} mm/s")
-            
-            with tab2:
-                st.plotly_chart(create_time_series_chart(historical_df, 'pressao', 'Pressão', '#3b82f6', 'Pressão (MCA)', show_threshold=config['limite_pressao_mca']), use_container_width=True)
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Atual", f"{pump_data['pressao']:.1f} MCA")
-                c2.metric("Média", f"{historical_df['pressao'].mean():.1f} MCA")
-                c3.metric("Máximo", f"{historical_df['pressao'].max():.1f} MCA")
-                c4.metric("Mínimo", f"{historical_df['pressao'].min():.1f} MCA")
-            
-            with tab3:
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=historical_df['timestamp'], y=historical_df['mancal'], mode='lines', name='Mancal', line=dict(color='#f59e0b', width=2.5)))
-                fig.add_trace(go.Scatter(x=historical_df['timestamp'], y=historical_df['oleo'], mode='lines', name='Óleo', line=dict(color='#ef4444', width=2.5)))
-                fig.add_hline(y=config['limite_mancal'], line_dash="dash", line_color="#ef4444", annotation_text="Limite")
-                fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(15, 23, 42, 0.5)', font={'color': '#e2e8f0'}, height=300, margin=dict(l=10, r=10, t=10, b=10), hovermode='x unified')
-                st.plotly_chart(fig, use_container_width=True)
-                
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Mancal Atual", f"{pump_data['mancal']:.1f} °C")
-                c2.metric("Óleo Atual", f"{pump_data['oleo']:.1f} °C")
-                c3.metric("Mancal Médio", f"{historical_df['mancal'].mean():.1f} °C")
-                c4.metric("Óleo Médio", f"{historical_df['oleo'].mean():.1f} °C")
-            
-            with tab4:
-                st.plotly_chart(create_time_series_chart(historical_df, 'corrente', 'Corrente', '#8b5cf6', 'Corrente (A)', show_threshold=config['limite_corrente']), use_container_width=True)
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Atual", f"{pump_data['corrente']:.1f} A")
-                c2.metric("Média", f"{historical_df['corrente'].mean():.1f} A")
-                c3.metric("Máximo", f"{historical_df['corrente'].max():.1f} A")
-                c4.metric("Mínimo", f"{historical_df['corrente'].min():.1f} A")
+        device_options = devices["device_id"].astype(str).tolist()
 
-# ============================================================================
-# VIEW: ALARMES
-# ============================================================================
-
-elif st.session_state.view == 'alarmes':
-    
-    st.markdown("### 🚨 Central de Alarmes")
-    
-    df_alarmes = get_alarmes()
-    
-    # Filtros
-    col1, col2, col3 = st.columns([2, 2, 6])
-    
-    with col1:
-        status_filter = st.selectbox("🔔 Status", ["Todos", "Ativos", "Reconhecidos"], key="alarm_status_filter")
-    
-    with col2:
-        if st.button("🔄 Atualizar Alarmes", use_container_width=True):
-            get_alarmes.clear()
-            st.rerun()
-    
-    # Aplicar filtro
-    if status_filter == "Ativos":
-        df_alarmes_filtered = df_alarmes[df_alarmes['status'] == 'Ativo']
-    elif status_filter == "Reconhecidos":
-        df_alarmes_filtered = df_alarmes[df_alarmes['status'] == 'Reconhecido']
-    else:
-        df_alarmes_filtered = df_alarmes
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # KPIs de Alarmes
-    k1, k2, k3 = st.columns(3)
-    
-    with k1:
-        total_alarmes = len(df_alarmes)
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value">{total_alarmes}</div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Total de Alarmes</div></div>', unsafe_allow_html=True)
-    
-    with k2:
-        ativos = len(df_alarmes[df_alarmes['status'] == 'Ativo'])
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-red">{ativos}</div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Alarmes Ativos</div></div>', unsafe_allow_html=True)
-    
-    with k3:
-        reconhecidos = len(df_alarmes[df_alarmes['status'] == 'Reconhecido'])
-        st.markdown(f'<div class="kpi-card"><div class="kpi-value txt-green">{reconhecidos}</div><div style="margin-top: 0.5rem; font-size: 0.85rem;">Reconhecidos</div></div>', unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Lista de Alarmes
-    if len(df_alarmes_filtered) == 0:
-        st.success("✅ Nenhum alarme encontrado com os filtros aplicados!")
-    else:
-        st.markdown(f"**{len(df_alarmes_filtered)} alarme(s) encontrado(s)**")
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        for idx, row in df_alarmes_filtered.iterrows():
-            ativo = row['status'] == 'Ativo'
-            card_class = 'alarm-card' if ativo else 'alarm-card reconhecido'
-            
-            data_hora_fmt = pd.to_datetime(row['data_hora']).strftime('%d/%m/%Y %H:%M:%S')
-            
-            st.markdown(f"""
-            <div class="{card_class}">
-                <div style='display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;'>
-                    <div style='flex: 1;'>
-                        <div style='font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 4px;'>{data_hora_fmt}</div>
-                        <div style='font-size: 1.2rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.5rem;'>{row['bomba']}</div>
-                        <div style='display: inline-block; background: rgba(239, 68, 68, 0.2); padding: 4px 12px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; color: var(--accent-red); margin-bottom: 0.5rem;'>
-                            🚨 {row['sensor']}
-                        </div>
-                    </div>
-                    <div style='text-align: right;'>
-                        <div style='background: {"rgba(16, 185, 129, 0.2)" if not ativo else "rgba(239, 68, 68, 0.2)"}; padding: 6px 14px; border-radius: 8px; font-size: 0.85rem; font-weight: 600; color: {"var(--accent-green)" if not ativo else "var(--accent-red)"};'>
-                            {"✅ RECONHECIDO" if not ativo else "⚠️ ATIVO"}
-                        </div>
-                    </div>
-                </div>
-                
-                <div style='background: rgba(15, 23, 42, 0.5); padding: 12px; border-radius: 8px; margin-bottom: 0.75rem;'>
-                    <div style='display: grid; grid-template-columns: 1fr 1fr; gap: 12px;'>
-                        <div>
-                            <div style='font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;'>Valor Detectado</div>
-                            <div style='font-size: 1.1rem; font-weight: 700; color: var(--accent-red);'>{row['valor_detectado']}</div>
-                        </div>
-                        <div>
-                            <div style='font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;'>Limite Definido</div>
-                            <div style='font-size: 1.1rem; font-weight: 700; color: var(--accent-orange);'>{row['limite_definido']}</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style='display: flex; justify-content: space-between; align-items: center;'>
-                    <div style='font-size: 0.85rem; color: var(--text-secondary);'>
-                        Operador: <span style='color: var(--text-primary); font-weight: 600;'>{row['operador']}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if ativo:
-                col_ack1, col_ack2, col_ack3 = st.columns([2, 2, 8])
-                
-                with col_ack1:
-                    operador_nome = st.text_input("Seu nome", key=f"op_{idx}", placeholder="Digite seu nome")
-                
-                with col_ack2:
-                    if st.button("✅ Reconhecer Alarme", key=f"ack_{idx}", use_container_width=True):
-                        if operador_nome:
-                            if reconhecer_alarme(row['id'], operador_nome):
-                                st.success(f"Alarme reconhecido por {operador_nome}!")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.error("Erro ao reconhecer alarme")
-                        else:
-                            st.warning("Digite seu nome primeiro")
-            
-            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
-
-# ============================================================================
-# VIEW: RELATÓRIOS
-# ============================================================================
-
-elif st.session_state.view == 'relatorios':
-    
-    st.markdown("### 📄 Geração de Relatórios")
-    
-    st.info("💡 Selecione a bomba e o formato desejado para gerar o relatório completo.")
-    
-    # Seleção de bomba
-    col1, col2, col3 = st.columns([2, 2, 8])
-    
-    with col1:
-        locais = sorted(df['local'].unique().tolist())
-        selected_local = st.selectbox("📍 Local", locais, key="rel_local")
-    
-    with col2:
-        bombas = sorted(df[df['local'] == selected_local]['id'].unique().tolist())
-        selected_pump = st.selectbox("🔧 Bomba", bombas, key="rel_bomba")
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Preview dos dados
-    pump_preview = df[(df['local'] == selected_local) & (df['id'] == selected_pump)]
-    
-    if len(pump_preview) > 0:
-        pump_preview = pump_preview.iloc[0]
-        
-        st.markdown("#### 📊 Preview dos Dados")
-        
-        prev_col1, prev_col2, prev_col3, prev_col4 = st.columns(4)
-        
-        with prev_col1:
-            st.metric("Status", pump_preview['status'])
-            st.metric("Pressão", f"{pump_preview['pressao']:.2f} MCA")
-        
-        with prev_col2:
-            st.metric("Temp. Mancal", f"{pump_preview['mancal']:.1f} °C")
-            st.metric("Temp. Óleo", f"{pump_preview['oleo']:.1f} °C")
-        
-        with prev_col3:
-            st.metric("Vibração", f"{pump_preview['vibra']:.2f} mm/s")
-            st.metric("Corrente", f"{pump_preview['corrente']:.1f} A")
-        
-        with prev_col4:
-            st.metric("Tensão Motor", f"{pump_preview['tensao_motor']:.0f} V")
-            st.metric("Tensão Rede", f"{pump_preview['tensao_rede']:.0f} V")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Botões de Download
-        st.markdown("#### 💾 Gerar Relatório")
-        
-        down_col1, down_col2, down_col3 = st.columns([2, 2, 8])
-        
-        with down_col1:
-            if st.button("📥 Download Excel", key="btn_excel", use_container_width=True):
-                excel_data = generate_excel_report(selected_pump, selected_local)
-                if excel_data:
-                    filename = f"relatorio_{selected_local}_{selected_pump}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                    st.download_button(
-                        label="⬇️ Baixar Excel",
-                        data=excel_data,
-                        file_name=filename,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                else:
-                    st.error("Erro ao gerar relatório Excel")
-        
-        with down_col2:
-            if st.button("📥 Download PDF", key="btn_pdf", use_container_width=True):
-                pdf_data = generate_pdf_report(selected_pump, selected_local)
-                if pdf_data:
-                    filename = f"relatorio_{selected_local}_{selected_pump}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                    st.download_button(
-                        label="⬇️ Baixar PDF",
-                        data=pdf_data,
-                        file_name=filename,
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-                else:
-                    st.error("Erro ao gerar relatório PDF")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Informações sobre o relatório
-        st.markdown("#### ℹ️ Conteúdo do Relatório")
-        
-        st.markdown("""
-        **Excel (3 Planilhas):**
-        - 📊 **Dados Atuais**: Snapshot completo da bomba
-        - 📈 **Histórico 7 Dias**: Todas as leituras dos últimos 7 dias
-        - 📉 **Estatísticas**: Média, mínimo e máximo de cada parâmetro
-        
-        **PDF:**
-        - 📄 Relatório formatado profissionalmente
-        - 📊 Tabela com dados atuais
-        - 📈 Estatísticas dos últimos 7 dias
-        - 🏢 Pronto para impressão
-        """)
-
-# ============================================================================
-# VIEW: CONFIGURAÇÕES
-# ============================================================================
-
-elif st.session_state.view == 'config':
-    
-    st.markdown("### ⚙️ Configurações do Sistema")
-    st.info("💡 Configure os limites de alarmes. As alterações serão salvas no banco de dados.")
-    
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["⚙️ Pressão", "〰️ Vibração", "🌡️ Mancal", "💧 Óleo", "⚡ Corrente", "🔋 Tensão"])
-    
-    config = get_config()
-    
-    with tab1:
-        st.markdown("#### Configurações de Pressão")
-        
-        limite_pressao = st.number_input(
-            "Limite Mínimo de Pressão (bar)",
-            min_value=0.1,
-            max_value=40.0,
-            value=float(config.get('limite_pressao', 2.0)),
-            step=0.1,
-            help="Pressão abaixo deste valor gera alarme",
-            key="config_pressao"
+        selected_device = st.selectbox(
+            "Equipamento",
+            device_options,
         )
-        
-        st.info(f"💡 Equivalente a {bar_to_mca(limite_pressao):.1f} MCA")
-        
-        if st.button("💾 Salvar Pressão", type="primary", use_container_width=True):
-            if save_config_to_db(limite_pressao=limite_pressao):
-                st.success("✅ Limite de pressão salvo no banco!")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Erro ao salvar")
-    
-    with tab2:
-        st.markdown("#### Configurações de Vibração")
-        
-        limite_rms = st.number_input(
-            "Limite RMS (mm/s)",
-            min_value=0.1,
-            max_value=10.0,
-            value=float(config.get('limite_rms', 5.0)),
-            step=0.1,
-            key="config_rms"
-        )
-        
-        if st.button("💾 Salvar Vibração", type="primary", use_container_width=True):
-            if save_config_to_db(limite_rms=limite_rms):
-                st.success("✅ Limite de vibração salvo no banco!")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Erro ao salvar")
-    
-    with tab3:
-        st.markdown("#### Configurações de Temperatura do Mancal")
-        
-        limite_mancal = st.number_input(
-            "Limite Máximo (°C)",
-            min_value=20,
-            max_value=150,
-            value=int(config.get('limite_mancal', 75)),
-            step=5,
-            key="config_mancal"
-        )
-        
-        if st.button("💾 Salvar Mancal", type="primary", use_container_width=True):
-            if save_config_to_db(limite_mancal=limite_mancal):
-                st.success("✅ Limite de mancal salvo no banco!")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Erro ao salvar")
-    
-    with tab4:
-        st.markdown("#### Configurações de Temperatura do Óleo")
-        
-        limite_oleo = st.number_input(
-            "Limite Máximo (°C)",
-            min_value=20,
-            max_value=150,
-            value=int(config.get('limite_oleo', 80)),
-            step=5,
-            key="config_oleo"
-        )
-        
-        if st.button("💾 Salvar Óleo", type="primary", use_container_width=True):
-            if save_config_to_db(limite_oleo=limite_oleo):
-                st.success("✅ Limite de óleo salvo no banco!")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Erro ao salvar")
-    
-    with tab5:
-        st.markdown("#### Configurações de Corrente")
-        
-        limite_corrente = st.number_input(
-            "Limite Máximo (A)",
-            min_value=10.0,
-            max_value=650.0,
-            value=float(config.get('limite_corrente', 480.0)),
-            step=5.0,
-            help="Corrente acima deste valor gera alarme",
-            key="config_corrente"
-        )
-        
-        if st.button("💾 Salvar Corrente", type="primary", use_container_width=True):
-            if save_config_to_db(limite_corrente=limite_corrente):
-                st.success("✅ Limite de corrente salvo no banco!")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("❌ Erro ao salvar")
-    
-    with tab6:
-        st.markdown("#### Configurações de Tensão da Rede")
-        st.info("💡 Dados de tensão enviados pelo ESP32 elétrico via tabela **status_eletrico**.")
-        
-        col_tv1, col_tv2 = st.columns(2)
-        
-        with col_tv1:
-            limite_tensao_min = st.number_input(
-                "Tensão Mínima (V)",
-                min_value=200.0,
-                max_value=420.0,
-                value=float(config.get("limite_tensao_min", 360.0)),
-                step=5.0,
-                help="Tensão abaixo deste valor gera alarme",
-                key="config_tensao_min"
+
+        device_row = devices[
+            devices["device_id"].astype(str) == selected_device
+        ].iloc[0]
+
+        with st.form("device_form"):
+            name = st.text_input(
+                "Nome exibido",
+                value=str(device_row.get("nome") or selected_device),
             )
-        
-        with col_tv2:
-            limite_tensao_max = st.number_input(
-                "Tensão Máxima (V)",
-                min_value=200.0,
-                max_value=440.0,
-                value=float(config.get("limite_tensao_max", 400.0)),
-                step=5.0,
-                help="Tensão acima deste valor gera alarme",
-                key="config_tensao_max"
+
+            location = st.text_input(
+                "Local",
+                value=str(device_row.get("local") or ""),
+                help="Ex.: Jacutinga ou Intermédiaria",
             )
-        
-        if st.button("💾 Salvar Tensão", type="primary", use_container_width=True):
-            if save_config_to_db(limite_tensao_min=limite_tensao_min, limite_tensao_max=limite_tensao_max):
-                st.success("✅ Limites de tensão salvos no banco!")
-                time.sleep(1)
+
+            description = st.text_input(
+                "Descrição",
+                value=str(device_row.get("descricao") or ""),
+            )
+
+            order = st.number_input(
+                "Ordem",
+                min_value=0,
+                value=int(safe_float(device_row.get("ordem"), 999)),
+                step=1,
+            )
+
+            active = st.checkbox(
+                "Equipamento ativo",
+                value=bool(device_row.get("ativo", True)),
+            )
+
+            save_device = st.form_submit_button(
+                "Salvar equipamento",
+                type="primary",
+            )
+
+        if save_device:
+            ok, error = update_device(
+                selected_device,
+                {
+                    "nome": name.strip() or selected_device,
+                    "local": location.strip() or "Sem local",
+                    "descricao": description.strip() or None,
+                    "ordem": int(order),
+                    "ativo": active,
+                },
+            )
+
+            if ok:
+                st.success("Equipamento atualizado.")
                 st.rerun()
             else:
-                st.error("❌ Erro ao salvar")
+                st.error(
+                    "Não foi possível salvar o equipamento. "
+                    "Verifique as políticas RLS da tabela dispositivos."
+                )
+                st.code(error or "Erro desconhecido")
 
-# ============================================================================
+        st.markdown("---")
+        st.markdown("### Entradas analógicas")
+
+        for canal_num in range(1, 9):
+            canal = f"AI{canal_num:03d}"
+            cfg = channel_configs.get((selected_device, canal), {})
+
+            with st.expander(
+                f"{canal} — {channel_display_name(cfg, canal)}",
+                expanded=False,
+            ):
+                with st.form(f"channel_form_{selected_device}_{canal}"):
+
+                    channel_name = st.text_input(
+                        "Nome exibido",
+                        value=str(
+                            cfg.get("nome")
+                            or cfg.get("descricao")
+                            or canal
+                        ),
+                    )
+
+                    st.text_input(
+                        "Tipo do sensor",
+                        value=str(cfg.get("tipo_sensor") or "—"),
+                        disabled=True,
+                    )
+
+                    st.text_input(
+                        "Entrada física",
+                        value=str(cfg.get("entrada_tipo") or "—"),
+                        disabled=True,
+                    )
+
+                    channel_unit_value = st.text_input(
+                        "Unidade",
+                        value=str(cfg.get("unidade") or ""),
+                    )
+
+                    active_channel = st.checkbox(
+                        "Entrada ativa",
+                        value=bool(cfg.get("ativo", False)),
+                    )
+
+                    if str(cfg.get("entrada_tipo", "")).lower() == "4-20ma":
+                        scale_min = st.number_input(
+                            "Escala mínima",
+                            value=float(
+                                safe_float(cfg.get("escala_min"), 0)
+                            ),
+                        )
+
+                        scale_max = st.number_input(
+                            "Escala máxima",
+                            value=float(
+                                safe_float(cfg.get("escala_max"), 100)
+                            ),
+                        )
+                    else:
+                        scale_min = cfg.get("escala_min")
+                        scale_max = cfg.get("escala_max")
+
+                    save_channel = st.form_submit_button(
+                        "Salvar entrada",
+                        type="primary",
+                    )
+
+                if save_channel:
+                    payload = {
+                        "nome": channel_name.strip() or canal,
+                        "unidade": channel_unit_value.strip() or None,
+                        "ativo": active_channel,
+                    }
+
+                    if str(cfg.get("entrada_tipo", "")).lower() == "4-20ma":
+                        payload["escala_min"] = float(scale_min)
+                        payload["escala_max"] = float(scale_max)
+
+                    ok, error = update_channel(
+                        selected_device,
+                        canal,
+                        payload,
+                    )
+
+                    if ok:
+                        st.success(f"{canal} atualizado.")
+                        st.rerun()
+                    else:
+                        st.error(
+                            f"Não foi possível salvar {canal}. "
+                            "Verifique as políticas RLS da tabela canais_analogicos."
+                        )
+                        st.code(error or "Erro desconhecido")
+
+        st.markdown("---")
+        st.markdown("### Limites de alarme")
+
+        with st.form("global_config_form"):
+            pressure_limit = st.number_input(
+                "Pressão mínima (bar)",
+                value=float(
+                    safe_float(load_global_config().get("limite_pressao"), 2.0)
+                ),
+                step=0.1,
+            )
+
+            vibration_limit = st.number_input(
+                "Vibração máxima (mm/s RMS)",
+                value=float(
+                    safe_float(load_global_config().get("limite_rms"), 5.0)
+                ),
+                step=0.1,
+            )
+
+            mancal_limit = st.number_input(
+                "Limite AI006 (°C)",
+                value=float(
+                    safe_float(load_global_config().get("limite_mancal"), 75.0)
+                ),
+                step=1.0,
+            )
+
+            oil_limit = st.number_input(
+                "Limite AI007 (°C)",
+                value=float(
+                    safe_float(load_global_config().get("limite_oleo"), 80.0)
+                ),
+                step=1.0,
+            )
+
+            save_limits = st.form_submit_button(
+                "Salvar limites",
+                type="primary",
+            )
+
+        if save_limits:
+            try:
+                (
+                    supabase
+                    .table("configuracoes")
+                    .update({
+                        "limite_pressao": pressure_limit,
+                        "limite_rms": vibration_limit,
+                        "limite_mancal": mancal_limit,
+                        "limite_oleo": oil_limit,
+                    })
+                    .eq("id", 1)
+                    .execute()
+                )
+
+                load_global_config.clear()
+                st.success("Limites salvos.")
+                st.rerun()
+
+            except Exception as exc:
+                st.error("Não foi possível salvar os limites.")
+                st.exception(exc)
+
+
+# ============================================================
 # RODAPÉ
-# ============================================================================
+# ============================================================
 
-st.markdown("<br><br>", unsafe_allow_html=True)
-st.markdown(f"""
-<div style='text-align: center; color: #64748b; font-size: 0.85rem; padding: 20px; border-top: 1px solid var(--border-color);'>
-    <div style='margin-bottom: 8px;'><strong>GS Inima Sistemas</strong> © 2025 | Sistema de Monitoramento Industrial v4.0</div>
-    <div>Conectado ao Supabase | {datetime.now().strftime("%d/%m/%Y %H:%M:%S")}</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("---")
+st.markdown(
+    f"""
+    <div class="muted" style="text-align:center;padding:10px;">
+        AXION • Atualização automática a cada {REFRESH_SECONDS}s •
+        Dados reais do Supabase
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
