@@ -13,8 +13,11 @@ supabase>=2.0.0
 postgrest>=0.16.0
 
 # Geração de Relatórios
-openpyxl>=3.1.0  # Excel
-reportlab>=4.0.0  # PDF
+openpyxl>=3.1.0
+reportlab>=4.0.0
 
-# Protocolos e Comunicação (Ponte MQTT)
+# Protocolos e Comunicação
 paho-mqtt==1.6.1
+
+# Atualização automática do dashboard
+streamlit-autorefresh>=1.0.1
