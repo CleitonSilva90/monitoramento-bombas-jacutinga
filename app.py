@@ -693,6 +693,18 @@ def get_channel_value(row, configs, device_id, canal, full_scale_v=4.096):
     return convert_channel_value(raw, cfg, full_scale_v)
 
 
+def status_badge(status):
+    status = str(status)
+
+    if status == "Online":
+        return "<span class='pill-online'>ONLINE</span>"
+
+    if status == "Alarme":
+        return "<span class='pill-alarm'>ALARME</span>"
+
+    return "<span class='pill-offline'>OFFLINE</span>"
+
+
 def get_default_config():
     return {
         "limite_pressao": 2.0,
