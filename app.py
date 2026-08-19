@@ -2570,37 +2570,10 @@ if st.session_state.view == "dashboard":
                                 ),
                             })
 
-                        # Pressão primeiro.
-                        pressure_candidates = [
-                            item for item in candidates
-                            if (
-                                "press" in item["label"].lower()
-                                or item["unit"].lower()
-                                in {"bar", "mca"}
-                            )
-                        ]
-
-                        temperature_candidates = [
-                            item for item in candidates
-                            if (
-                                item["unit"].lower()
-                                in {"°c", "c"}
-                                or "temp" in item["label"].lower()
-                            )
-                            and item not in pressure_candidates
-                        ]
-
-                        other_candidates = [
-                            item for item in candidates
-                            if item not in pressure_candidates
-                            and item not in temperature_candidates
-                        ]
-
-                        main_gauges = (
-                            pressure_candidates
-                            + temperature_candidates
-                            + other_candidates
-                        )[:3]
+                        # Todas as entradas analógicas ativas viram gauges.
+                        # A quantidade não é limitada: quando uma nova AI é
+                        # ativada, ela automaticamente ganha seu próprio gauge.
+                        active_gauges = candidates
 
                         # ----------------------------
                         # Cabeçalho do equipamento
@@ -2655,132 +2628,144 @@ if st.session_state.view == "dashboard":
                             # Gauges principais
                             # ----------------------------
 
-                            if main_gauges:
+                            if active_gauges:
 
-                                gauge_columns = st.columns(
-                                    len(main_gauges)
-                                )
-
-                                for gauge_col, item in zip(
-                                    gauge_columns,
-                                    main_gauges
+                                # No máximo 3 gauges por linha.
+                                # Se existirem 4, 5, 6... AIs ativas,
+                                # novas linhas são criadas automaticamente.
+                                for gauge_start in range(
+                                    0,
+                                    len(active_gauges),
+                                    3
                                 ):
+                                    gauge_row = active_gauges[
+                                        gauge_start:gauge_start + 3
+                                    ]
 
-                                    with gauge_col:
-                                        st.markdown(
-                                            analog_gauge_html(
-                                                item["label"], item["value"], item["unit"],
-                                                item["eng_min"], item["eng_max"],
-                                                item["alarm_min"], item["alarm_max"],
-                                            ),
-                                            unsafe_allow_html=True,
-                                        )
+                                    gauge_columns = st.columns(
+                                        len(gauge_row),
+                                        gap="small",
+                                    )
 
-                                        # Min/max atuais do período
-                                        # ficam abaixo do mostrador,
-                                        # sem depender da aba Relatórios.
-                                        history_short = load_history(
-                                            device_id,
-                                            7
-                                        )
-
-                                        values = pd.Series(
-                                            dtype=float
-                                        )
-
-                                        if not history_short.empty:
-                                            values = pd.to_numeric(
-                                                history_short.apply(
-                                                    lambda hist_row: get_channel_value(
-                                                        hist_row,
-                                                        channel_configs,
-                                                        device_id,
-                                                        item["canal"],
-                                                        full_scale_v,
-                                                    ),
-                                                    axis=1,
-                                                ),
-                                                errors="coerce"
-                                            ).dropna()
-
-                                        if not values.empty:
-                                            avg = float(values.mean())
-                                            minimum = float(values.min())
-                                            maximum = float(values.max())
-                                            minimum = max(item["eng_min"], min(minimum, item["eng_max"]))
-                                            maximum = max(item["eng_min"], min(maximum, item["eng_max"]))
-                                            avg = max(item["eng_min"], min(avg, item["eng_max"]))
-
+                                    for gauge_col, item in zip(
+                                        gauge_columns,
+                                        gauge_row
+                                    ):
+                                        with gauge_col:
                                             st.markdown(
-                                                f"""
-                                                <div style="
-                                                    display:grid;
-                                                    grid-template-columns:repeat(3,1fr);
-                                                    gap:.25rem;
-                                                    margin-top:-.2rem;
-                                                    margin-bottom:.2rem;
-                                                    text-align:center;
-                                                ">
-                                                    <div>
-                                                        <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Média</div>
-                                                        <div style="color:#263241;font-size:.86rem;font-weight:900;">{avg:.2f} {item["unit"]}</div>
-                                                    </div>
-                                                    <div>
-                                                        <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Mín.</div>
-                                                        <div style="color:#263241;font-size:.86rem;font-weight:900;">{minimum:.2f} {item["unit"]}</div>
-                                                    </div>
-                                                    <div>
-                                                        <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Máx.</div>
-                                                        <div style="color:#263241;font-size:.86rem;font-weight:900;">{maximum:.2f} {item["unit"]}</div>
-                                                    </div>
-                                                </div>
-                                                """,
+                                                analog_gauge_html(
+                                                    item["label"], item["value"], item["unit"],
+                                                    item["eng_min"], item["eng_max"],
+                                                    item["alarm_min"], item["alarm_max"],
+                                                ),
                                                 unsafe_allow_html=True,
                                             )
 
-                            # ----------------------------
-                            # Alarmes ativos
-                            # ----------------------------
+                                            # Min/max atuais do período
+                                            # ficam abaixo do mostrador,
+                                            # sem depender da aba Relatórios.
+                                            history_short = load_history(
+                                                device_id,
+                                                7
+                                            )
 
-                            current_alarms = get_current_device_alarms(
-                                row
-                            )
+                                            values = pd.Series(
+                                                dtype=float
+                                            )
 
-                            if not current_alarms.empty:
-                                st.markdown(
-                                    "<div class='small' style='margin-top:.55rem;'>ALARMES ATIVOS</div>",
-                                    unsafe_allow_html=True,
+                                            if not history_short.empty:
+                                                values = pd.to_numeric(
+                                                    history_short.apply(
+                                                        lambda hist_row: get_channel_value(
+                                                            hist_row,
+                                                            channel_configs,
+                                                            device_id,
+                                                            item["canal"],
+                                                            full_scale_v,
+                                                        ),
+                                                        axis=1,
+                                                    ),
+                                                    errors="coerce"
+                                                ).dropna()
+
+                                            if not values.empty:
+                                                avg = float(values.mean())
+                                                minimum = float(values.min())
+                                                maximum = float(values.max())
+                                                minimum = max(item["eng_min"], min(minimum, item["eng_max"]))
+                                                maximum = max(item["eng_min"], min(maximum, item["eng_max"]))
+                                                avg = max(item["eng_min"], min(avg, item["eng_max"]))
+
+                                                st.markdown(
+                                                    f"""
+                                                    <div style="
+                                                        display:grid;
+                                                        grid-template-columns:repeat(3,1fr);
+                                                        gap:.25rem;
+                                                        margin-top:-.2rem;
+                                                        margin-bottom:.2rem;
+                                                        text-align:center;
+                                                    ">
+                                                        <div>
+                                                            <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Média</div>
+                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{avg:.2f} {item["unit"]}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Mín.</div>
+                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{minimum:.2f} {item["unit"]}</div>
+                                                        </div>
+                                                        <div>
+                                                            <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Máx.</div>
+                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{maximum:.2f} {item["unit"]}</div>
+                                                        </div>
+                                                    </div>
+                                                    """,
+                                                    unsafe_allow_html=True,
+                                                )
+
+                                # ----------------------------
+                                # Alarmes ativos
+                                # ----------------------------
+
+                                current_alarms = get_current_device_alarms(
+                                    row
                                 )
 
-                                for _, alarm in current_alarms.iterrows():
-                                    value_text = format_value(
-                                        alarm.get("Valor"),
-                                        2,
-                                        alarm.get("Unidade", "")
+                                if not current_alarms.empty:
+                                    st.markdown(
+                                        "<div class='small' style='margin-top:.55rem;'>ALARMES ATIVOS</div>",
+                                        unsafe_allow_html=True,
                                     )
 
-                                    limit_text = format_value(
-                                        alarm.get("Limite"),
-                                        2,
-                                        alarm.get("Unidade", "")
-                                    )
+                                    for _, alarm in current_alarms.iterrows():
+                                        value_text = format_value(
+                                            alarm.get("Valor"),
+                                            2,
+                                            alarm.get("Unidade", "")
+                                        )
 
-                                    if alarm.get("Valor") < alarm.get("Limite"):
-                                        reason = "Abaixo do limite mínimo"
-                                    else:
-                                        reason = "Acima do limite máximo"
+                                        limit_text = format_value(
+                                            alarm.get("Limite"),
+                                            2,
+                                            alarm.get("Unidade", "")
+                                        )
 
-                                    when_text = format_local_datetime(
-                                        alarm.get("Data/Hora")
-                                    )
+                                        if alarm.get("Valor") < alarm.get("Limite"):
+                                            reason = "Abaixo do limite mínimo"
+                                        else:
+                                            reason = "Acima do limite máximo"
 
-                                    render_alarm_card(
-                                        alarm.get("Grandeza", "Alarme"),
-                                        reason,
-                                        value_text,
-                                        limit_text,
-                                        when_text,
-                                    )
+                                        when_text = format_local_datetime(
+                                            alarm.get("Data/Hora")
+                                        )
+
+                                        render_alarm_card(
+                                            alarm.get("Grandeza", "Alarme"),
+                                            reason,
+                                            value_text,
+                                            limit_text,
+                                            when_text,
+                                        )
 
                             # ----------------------------
                             # Vibração principal
@@ -2855,48 +2840,6 @@ if st.session_state.view == "dashboard":
                                             3
                                         ),
                                     )
-
-                            # ----------------------------
-                            # Outras entradas ativas
-                            # ----------------------------
-
-                            extra_candidates = [
-                                item
-                                for item in candidates
-                                if item not in main_gauges
-                            ]
-
-                            if extra_candidates:
-
-                                st.markdown(
-                                    "<div class='small' style='margin-top:.35rem;'>OUTRAS ENTRADAS ATIVAS</div>",
-                                    unsafe_allow_html=True,
-                                )
-
-                                extra_columns = st.columns(
-                                    min(
-                                        4,
-                                        len(
-                                            extra_candidates
-                                        )
-                                    )
-                                )
-
-                                for col, item in zip(
-                                    extra_columns,
-                                    extra_candidates
-                                ):
-
-                                    with col:
-
-                                        st.metric(
-                                            item["label"],
-                                            format_value(
-                                                item["value"],
-                                                2,
-                                                item["unit"]
-                                            ),
-                                        )
 
                             # ----------------------------
                             # Rodapé
