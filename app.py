@@ -115,10 +115,10 @@ st.markdown(
         [data-testid="stVerticalBlockBorderWrapper"]>div{padding-top:.65rem!important;padding-bottom:.65rem!important}[data-testid="stVerticalBlockBorderWrapper"] h3{color:#162033!important;font-size:1.16rem!important;font-weight:900!important}[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"]{color:#798594!important}[data-testid="stVerticalBlockBorderWrapper"] hr{border-color:#e5e8ed!important;margin:.55rem 0 .7rem!important}
         [data-testid="stMetricLabel"]{color:#707c8b!important;font-size:.65rem!important;font-weight:800!important}[data-testid="stMetricValue"]{color:#172131!important;font-size:1.05rem!important;font-weight:900!important}[data-testid="stMetricDelta"]{color:#7b8594!important;font-size:.64rem!important}
         .pill-online,.pill-offline,.pill-alarm{display:inline-flex;align-items:center;padding:.3rem .58rem;border-radius:999px;font-size:.63rem;font-weight:850}.pill-online{color:#21825b;background:#e6f7ef;border:1px solid #bce7d1}.pill-offline{color:#5f6b79;background:#f1f3f5;border:1px solid #dfe4e9}.pill-alarm{color:#b43b44;background:#fdebec;border:1px solid #f2c4c7}
-        .gauge-card{width:100%;min-height:288px;background:#fff;border:1px solid #e0e5eb;border-radius:14px;padding:.55rem .55rem .35rem;box-shadow:0 3px 11px rgba(31,41,55,.035);overflow:hidden}.gauge-title{text-align:center;color:#455264;font-size:.92rem;font-weight:900;min-height:2.3em;display:flex;align-items:center;justify-content:center}.gauge-svg{display:block;width:100%;max-width:290px;margin:0 auto;height:auto;pointer-events:none;user-select:none}.gauge-value{text-align:center;margin-top:-.38rem;color:#182233;font-size:1.52rem;font-weight:900;letter-spacing:-.03em}.gauge-range{display:grid;grid-template-columns:repeat(3,1fr);color:#465264;font-size:.74rem;font-weight:850;padding:.08rem .25rem .12rem}.gauge-range span:nth-child(2){text-align:center}.gauge-range span:last-child{text-align:right}
+        .gauge-card{width:100%;min-height:214px;background:#fff;border:1px solid #e0e5eb;border-radius:14px;padding:.55rem .55rem .35rem;box-shadow:0 3px 11px rgba(31,41,55,.035);overflow:hidden}.gauge-title{text-align:center;color:#455264;font-size:.78rem;font-weight:900;min-height:1.8em;display:flex;align-items:center;justify-content:center}.gauge-svg{display:block;width:100%;max-width:235px;margin:0 auto;height:auto;pointer-events:none;user-select:none}.gauge-value{text-align:center;margin-top:-.38rem;color:#182233;font-size:1.24rem;font-weight:900;letter-spacing:-.03em}.gauge-range{display:grid;grid-template-columns:repeat(3,1fr);color:#465264;font-size:.62rem;font-weight:850;padding:.08rem .25rem .12rem}.gauge-range span:nth-child(2){text-align:center}.gauge-range span:last-child{text-align:right}
         div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
         [data-testid="stForm"] label,[data-testid="stForm"] label p,[data-testid="stForm"] label span{color:#4c5665!important;font-weight:750!important}[data-testid="stExpander"]{background:#fff;border:1px solid #d9dfe6;border-radius:11px}[data-testid="stExpander"] summary{color:#263242!important;font-weight:800!important}
-        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}.gauge-card{min-height:252px}.gauge-value{font-size:1.22rem}}
+        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}.gauge-card{min-height:205px}.gauge-value{font-size:1.15rem}}
         [data-testid="stPlotlyChart"]{
             background:#ffffff!important;
             border:1px solid #dfe4ea!important;
@@ -2637,16 +2637,15 @@ if st.session_state.view == "dashboard":
 
                             if active_gauges:
 
-                                # No máximo 3 gauges por linha.
-                                # Se existirem 4, 5, 6... AIs ativas,
-                                # novas linhas são criadas automaticamente.
+                                # Quatro gauges por linha deixam o cartão
+                                # muito mais compacto quando existem várias AIs.
                                 for gauge_start in range(
                                     0,
                                     len(active_gauges),
-                                    3
+                                    4
                                 ):
                                     gauge_row = active_gauges[
-                                        gauge_start:gauge_start + 3
+                                        gauge_start:gauge_start + 4
                                     ]
 
                                     gauge_columns = st.columns(
@@ -2671,10 +2670,11 @@ if st.session_state.view == "dashboard":
                                             # Min/max atuais do período
                                             # ficam abaixo do mostrador,
                                             # sem depender da aba Relatórios.
-                                            history_short = load_history(
-                                                device_id,
-                                                7
-                                            )
+                                            if "history_short" not in locals():
+                                                history_short = load_history(
+                                                    device_id,
+                                                    7
+                                                )
 
                                             values = pd.Series(
                                                 dtype=float
@@ -2715,64 +2715,64 @@ if st.session_state.view == "dashboard":
                                                     ">
                                                         <div>
                                                             <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Média</div>
-                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{avg:.2f} {item["unit"]}</div>
+                                                            <div style="color:#344054;font-size:.74rem;font-weight:900;">{avg:.2f} {item["unit"]}</div>
                                                         </div>
                                                         <div>
                                                             <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Mín.</div>
-                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{minimum:.2f} {item["unit"]}</div>
+                                                            <div style="color:#344054;font-size:.74rem;font-weight:900;">{minimum:.2f} {item["unit"]}</div>
                                                         </div>
                                                         <div>
                                                             <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Máx.</div>
-                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{maximum:.2f} {item["unit"]}</div>
+                                                            <div style="color:#344054;font-size:.74rem;font-weight:900;">{maximum:.2f} {item["unit"]}</div>
                                                         </div>
                                                     </div>
                                                     """,
                                                     unsafe_allow_html=True,
                                                 )
 
-                                # ----------------------------
-                                # Alarmes ativos
-                                # ----------------------------
+                            # ----------------------------
+                            # Alarmes ativos
+                            # ----------------------------
 
-                                current_alarms = get_current_device_alarms(
-                                    row
+                            current_alarms = get_current_device_alarms(
+                                row
+                            )
+
+                            if not current_alarms.empty:
+                                st.markdown(
+                                    "<div class='small' style='margin-top:.55rem;'>ALARMES ATIVOS</div>",
+                                    unsafe_allow_html=True,
                                 )
 
-                                if not current_alarms.empty:
-                                    st.markdown(
-                                        "<div class='small' style='margin-top:.55rem;'>ALARMES ATIVOS</div>",
-                                        unsafe_allow_html=True,
+                                for _, alarm in current_alarms.iterrows():
+                                    value_text = format_value(
+                                        alarm.get("Valor"),
+                                        2,
+                                        alarm.get("Unidade", "")
                                     )
 
-                                    for _, alarm in current_alarms.iterrows():
-                                        value_text = format_value(
-                                            alarm.get("Valor"),
-                                            2,
-                                            alarm.get("Unidade", "")
-                                        )
+                                    limit_text = format_value(
+                                        alarm.get("Limite"),
+                                        2,
+                                        alarm.get("Unidade", "")
+                                    )
 
-                                        limit_text = format_value(
-                                            alarm.get("Limite"),
-                                            2,
-                                            alarm.get("Unidade", "")
-                                        )
+                                    if alarm.get("Valor") < alarm.get("Limite"):
+                                        reason = "Abaixo do limite mínimo"
+                                    else:
+                                        reason = "Acima do limite máximo"
 
-                                        if alarm.get("Valor") < alarm.get("Limite"):
-                                            reason = "Abaixo do limite mínimo"
-                                        else:
-                                            reason = "Acima do limite máximo"
+                                    when_text = format_local_datetime(
+                                        alarm.get("Data/Hora")
+                                    )
 
-                                        when_text = format_local_datetime(
-                                            alarm.get("Data/Hora")
-                                        )
-
-                                        render_alarm_card(
-                                            alarm.get("Grandeza", "Alarme"),
-                                            reason,
-                                            value_text,
-                                            limit_text,
-                                            when_text,
-                                        )
+                                    render_alarm_card(
+                                        alarm.get("Grandeza", "Alarme"),
+                                        reason,
+                                        value_text,
+                                        limit_text,
+                                        when_text,
+                                    )
 
                             # ----------------------------
                             # Vibração principal
