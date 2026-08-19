@@ -1,3 +1,4 @@
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -399,6 +400,45 @@ st.markdown(
         [data-testid="stExpander"] summary {
             color: #f3f7fb !important;
             font-weight: 800 !important;
+        }
+
+
+        /* Gauge cards */
+        [data-testid="stVerticalBlockBorderWrapper"] .js-plotly-plot {
+            margin: -.15rem 0 -.1rem;
+        }
+
+        [data-testid="stVerticalBlockBorderWrapper"] .plot-container {
+            background: transparent !important;
+        }
+
+        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMetricLabel"] {
+            color: #7e90a8 !important;
+        }
+
+        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMetricValue"] {
+            font-size: 1.08rem !important;
+        }
+
+        .gauge-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: .25rem;
+            text-align: center;
+        }
+
+        .gauge-summary-label {
+            color: #687991;
+            font-size: .56rem;
+            font-weight: 850;
+            text-transform: uppercase;
+        }
+
+        .gauge-summary-value {
+            color: #dbe7f5;
+            font-size: .72rem;
+            font-weight: 800;
+            margin-top: .08rem;
         }
 
         /* Mobile */
@@ -2193,21 +2233,138 @@ device_rows = build_devices_view()
 channel_configs = load_channel_configs()
 
 
+
+def analog_gauge(
+    title,
+    value,
+    unit,
+    scale_min,
+    scale_max,
+    alarm_min=None,
+    alarm_max=None,
+):
+    """
+    Gauge compacto para uma entrada analógica.
+    A escala vem da configuração da entrada; não há valores fixos
+    de engenharia no firmware.
+    """
+    value = safe_float(value)
+    scale_min = safe_float(scale_min, 0)
+    scale_max = safe_float(scale_max, 100)
+
+    if not np.isfinite(value):
+        value = scale_min
+
+    if not np.isfinite(scale_min):
+        scale_min = 0
+
+    if not np.isfinite(scale_max) or scale_max <= scale_min:
+        scale_max = scale_min + 1
+
+    # Mantém o ponteiro visível quando a leitura passa levemente do limite.
+    display_value = max(
+        scale_min,
+        min(value, scale_max)
+    )
+
+    bar_color = "#22c55e"
+
+    if np.isfinite(safe_float(alarm_max)) and value > safe_float(alarm_max):
+        bar_color = "#ef4444"
+    elif np.isfinite(safe_float(alarm_min)) and value < safe_float(alarm_min):
+        bar_color = "#ef4444"
+
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=display_value,
+            number={
+                "font": {
+                    "size": 30,
+                    "color": "#f8fafc",
+                },
+                "suffix": f" {unit}" if unit else "",
+            },
+            title={
+                "text": title,
+                "font": {
+                    "size": 13,
+                    "color": "#9aa9bd",
+                },
+            },
+            gauge={
+                "shape": "angular",
+                "axis": {
+                    "range": [scale_min, scale_max],
+                    "tickfont": {
+                        "size": 9,
+                        "color": "#71829a",
+                    },
+                },
+                "bar": {
+                    "color": bar_color,
+                    "thickness": 0.22,
+                },
+                "bgcolor": "#0d1422",
+                "borderwidth": 0,
+            },
+        )
+    )
+
+    if np.isfinite(safe_float(alarm_max)):
+        fig.add_hline(
+            y=safe_float(alarm_max),
+            line_width=0,
+            opacity=0,
+        )
+
+    fig.update_layout(
+        height=235,
+        margin={
+            "l": 18,
+            "r": 18,
+            "t": 28,
+            "b": 8,
+        },
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={
+            "color": "#f8fafc",
+        },
+    )
+
+    return fig
+
+
 # ============================================================
 # DASHBOARD
 # ============================================================
 
 if st.session_state.view == "dashboard":
 
-    st.markdown("## Bombas")
-
     if device_rows.empty:
-        st.info(
-            "Nenhum dispositivo cadastrado. "
-            "Quando cadastrarmos as bombas em 'Configuração', "
-            "elas aparecerão aqui automaticamente."
+        st.markdown(
+            "<div class='page-kicker'>Visão geral</div>"
+            "<div class='page-title'>Monitoramento</div>",
+            unsafe_allow_html=True,
         )
+
+        st.info(
+            "Nenhum equipamento cadastrado. "
+            "Use Configuração → Cadastrar novo equipamento."
+        )
+
     else:
+        # --------------------------------------------------------
+        # Cabeçalho
+        # --------------------------------------------------------
+
+        st.markdown(
+            "<div class='page-kicker'>Visão geral</div>"
+            "<div class='page-title'>Monitoramento</div>",
+            unsafe_allow_html=True,
+        )
+
         total = len(device_rows)
         online = int(
             (device_rows["status"] == "Online").sum()
@@ -2237,7 +2394,7 @@ if st.session_state.view == "dashboard":
                 f"""
                 <div class="kpi">
                     <div class="small">ONLINE</div>
-                    <div class="kpi-value" style="color:#10b981;">{online}</div>
+                    <div class="kpi-value" style="color:#22c55e;">{online}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2248,34 +2405,39 @@ if st.session_state.view == "dashboard":
                 f"""
                 <div class="kpi">
                     <div class="small">ALARMES</div>
-                    <div class="kpi-value" style="color:#ef4444;">{alarms}</div>
+                    <div class="kpi-value" style="color:#ff626b;">{alarms}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
 
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.caption(
+            f"Atualização automática a cada {REFRESH_SECONDS}s • "
+            f"Última atualização: "
+            f"{format_local_datetime(datetime.now(timezone.utc))}"
+        )
+
+        # --------------------------------------------------------
+        # Equipamentos por local
+        # --------------------------------------------------------
 
         locations = (
             device_rows["local"]
             .fillna("Sem local")
             .astype(str)
-            .replace("", "Sem local")
             .unique()
             .tolist()
         )
 
-        locations = sorted(
-            locations,
-            key=lambda x: str(x).lower()
-        )
-
         for location in locations:
+
             subset = (
                 device_rows[
                     device_rows["local"].astype(str) == str(location)
                 ]
-                .sort_values(["ordem", "nome"])
+                .sort_values(
+                    ["ordem", "nome"]
+                )
             )
 
             st.markdown(
@@ -2283,14 +2445,40 @@ if st.session_state.view == "dashboard":
                 unsafe_allow_html=True,
             )
 
-            # 3 cards por linha, preparado para as 6 bombas.
-            for start in range(0, len(subset), 3):
-                row_items = subset.iloc[start:start + 3]
-                columns = st.columns(3)
+            # Um equipamento usa toda a largura.
+            # Dois dividem a área.
+            # Três ou mais usam três colunas.
+            col_count = min(
+                3,
+                max(1, len(subset))
+            )
 
-                for index, (_, row) in enumerate(row_items.iterrows()):
+            for row_start in range(
+                0,
+                len(subset),
+                col_count
+            ):
+                row_items = subset.iloc[
+                    row_start:row_start + col_count
+                ]
+
+                columns = st.columns(
+                    col_count
+                )
+
+                for index, (_, row) in enumerate(
+                    row_items.iterrows()
+                ):
+
                     with columns[index]:
-                        device_id = str(row.get("device_id", "—"))
+
+                        device_id = str(
+                            row.get(
+                                "device_id",
+                                "—"
+                            )
+                        )
+
                         name = (
                             str(row.get("nome"))
                             if pd.notna(row.get("nome"))
@@ -2299,19 +2487,50 @@ if st.session_state.view == "dashboard":
                         )
 
                         score = health_score(row)
-                        color = health_color(score)
 
                         full_scale_v = safe_float(
-                            row.get("adc_full_scale_v"),
+                            row.get(
+                                "adc_full_scale_v"
+                            ),
                             4.096
                         )
 
-                        last = row.get("recebido_em")
+                        last = row.get(
+                            "recebido_em"
+                        )
+
                         last_text = format_local_datetime(
                             last
                         )
 
-                        def configured_metric(canal):
+                        # ----------------------------
+                        # Entradas ativas
+                        # ----------------------------
+
+                        active_ai = []
+
+                        for canal_num in range(1, 9):
+                            canal_name = (
+                                f"AI{canal_num:03d}"
+                            )
+
+                            if is_channel_active(
+                                channel_configs,
+                                device_id,
+                                canal_name
+                            ):
+                                active_ai.append(
+                                    canal_name
+                                )
+
+                        # ----------------------------
+                        # Seleção das grandezas principais
+                        # ----------------------------
+
+                        candidates = []
+
+                        for canal in active_ai:
+
                             cfg = get_channel_config(
                                 channel_configs,
                                 device_id,
@@ -2336,120 +2555,106 @@ if st.session_state.view == "dashboard":
                                 full_scale_v
                             )
 
-                            decimals = int(
-                                safe_float(
-                                    cfg.get("decimais"),
-                                    2
-                                )
-                            )
-
-                            return (
-                                label,
-                                format_value(
-                                    value,
-                                    decimals,
-                                    unit
-                                )
-                            )
-
-                        active_ai = []
-                        for canal_num in range(1, 9):
-                            canal_name = f"AI{canal_num:03d}"
-                            if is_channel_active(
-                                channel_configs,
-                                device_id,
-                                canal_name
-                            ):
-                                active_ai.append(canal_name)
-
-                        pressure_active = "AI004" in active_ai
-
-                        pressure = np.nan
-                        pressure_unit = ""
-                        pressure_mca = np.nan
-                        pressure_text = "—"
-                        mca_text = "—"
-
-                        if pressure_active:
-                            pressure_cfg = get_channel_config(
-                                channel_configs,
-                                device_id,
-                                "AI004"
-                            )
-
-                            pressure = get_channel_value(
-                                row,
-                                channel_configs,
-                                device_id,
-                                "AI004",
-                                full_scale_v
-                            )
-
-                            pressure_unit = channel_unit(
-                                pressure_cfg,
-                                ""
-                            )
-
-                            pressure_mca = (
-                                bar_to_mca(pressure)
-                                if pressure_unit.lower() == "bar"
-                                else np.nan
-                            )
-
-                            pressure_text = format_value(
-                                pressure,
-                                int(
-                                    safe_float(
-                                        pressure_cfg.get("decimais"),
-                                        2
+                            candidates.append({
+                                "canal": canal,
+                                "label": label,
+                                "unit": unit,
+                                "value": value,
+                                "eng_min": safe_float(
+                                    cfg.get(
+                                        "eng_min"
+                                    ),
+                                    0
+                                ),
+                                "eng_max": safe_float(
+                                    cfg.get(
+                                        "eng_max"
+                                    ),
+                                    100
+                                ),
+                                "alarm_min": safe_float(
+                                    cfg.get(
+                                        "alarme_min"
                                     )
                                 ),
-                                pressure_unit
+                                "alarm_max": safe_float(
+                                    cfg.get(
+                                        "alarme_max"
+                                    )
+                                ),
+                            })
+
+                        # Pressão primeiro.
+                        pressure_candidates = [
+                            item for item in candidates
+                            if (
+                                "press" in item["label"].lower()
+                                or item["unit"].lower()
+                                in {"bar", "mca"}
                             )
+                        ]
 
-                            mca_text = (
-                                format_value(
-                                    pressure_mca,
-                                    1,
-                                    "MCA"
-                                )
-                                if np.isfinite(pressure_mca)
-                                else "—"
+                        temperature_candidates = [
+                            item for item in candidates
+                            if (
+                                item["unit"].lower()
+                                in {"°c", "c"}
+                                or "temp" in item["label"].lower()
                             )
-
-                        vibration_values = [
-                            safe_float(row.get("x_mm_s")),
-                            safe_float(row.get("y_mm_s")),
-                            safe_float(row.get("z_mm_s")),
+                            and item not in pressure_candidates
                         ]
-                        vibration_values = [
-                            x for x in vibration_values if np.isfinite(x)
+
+                        other_candidates = [
+                            item for item in candidates
+                            if item not in pressure_candidates
+                            and item not in temperature_candidates
                         ]
-                        vibration_max = max(vibration_values) if vibration_values else np.nan
 
-                        # pressure_text e mca_text já foram definidos
-                        # somente quando AI004 está ativa. Quando a entrada
-                        # de pressão está desativada, permanecem como "—".
+                        main_gauges = (
+                            pressure_candidates
+                            + temperature_candidates
+                            + other_candidates
+                        )[:3]
 
-                        # Renderização nativa do Streamlit.
-                        # Evitamos HTML livre dentro do cartão para impedir
-                        # que o Streamlit exiba as tags como texto.
-                        with st.container(border=True):
+                        # ----------------------------
+                        # Cabeçalho do equipamento
+                        # ----------------------------
 
-                            header_left, header_right = st.columns([3.2, 1])
+                        with st.container(
+                            border=True
+                        ):
+
+                            header_left, header_right = st.columns(
+                                [3.2, 1]
+                            )
 
                             with header_left:
-                                st.caption(str(location))
-                                st.subheader(name)
-                                st.caption(device_id)
+
+                                st.caption(
+                                    str(location)
+                                )
+
+                                st.subheader(
+                                    name
+                                )
+
+                                st.caption(
+                                    device_id
+                                )
 
                             with header_right:
+
                                 status = str(
-                                    row.get("status", "Offline")
+                                    row.get(
+                                        "status",
+                                        "Offline"
+                                    )
                                 )
 
                                 st.markdown(
-                                    status_badge(status),
+                                    status_badge(
+                                        status
+                                    ),
                                     unsafe_allow_html=True,
                                 )
 
@@ -2460,111 +2665,224 @@ if st.session_state.view == "dashboard":
 
                             st.divider()
 
-                            # Pressão só aparece se a AI004 estiver ativa.
-                            # Vibração permanece sempre visível porque é um recurso
-                            # nativo do AXION e não depende das AIs analógicas.
-                            metric_columns = []
+                            # ----------------------------
+                            # Gauges principais
+                            # ----------------------------
 
-                            if pressure_active:
-                                metric_columns.append(
-                                    (
-                                        "Pressão",
-                                        pressure_text,
-                                        mca_text,
-                                    )
+                            if main_gauges:
+
+                                gauge_columns = st.columns(
+                                    len(main_gauges)
                                 )
 
-                            metric_columns.append(
-                                (
-                                    "Vibração máxima",
-                                    format_value(
-                                        vibration_max,
-                                        3,
-                                        "mm/s"
-                                    ),
-                                    "RMS",
-                                )
+                                for gauge_col, item in zip(
+                                    gauge_columns,
+                                    main_gauges
+                                ):
+
+                                    with gauge_col:
+
+                                        st.plotly_chart(
+                                            analog_gauge(
+                                                item["label"],
+                                                item["value"],
+                                                item["unit"],
+                                                item["eng_min"],
+                                                item["eng_max"],
+                                                item["alarm_min"],
+                                                item["alarm_max"],
+                                            ),
+                                            use_container_width=True,
+                                            config={
+                                                "displayModeBar": False,
+                                                "responsive": True,
+                                            },
+                                        )
+
+                                        # Min/max atuais do período
+                                        # ficam abaixo do mostrador,
+                                        # sem depender da aba Relatórios.
+                                        history_short = load_history(
+                                            device_id,
+                                            7
+                                        )
+
+                                        values = pd.Series(
+                                            dtype=float
+                                        )
+
+                                        if not history_short.empty:
+                                            values = pd.to_numeric(
+                                                history_short.apply(
+                                                    lambda hist_row: get_channel_value(
+                                                        hist_row,
+                                                        channel_configs,
+                                                        device_id,
+                                                        item["canal"],
+                                                        full_scale_v,
+                                                    ),
+                                                    axis=1,
+                                                ),
+                                                errors="coerce"
+                                            ).dropna()
+
+                                        if not values.empty:
+                                            avg = float(
+                                                values.mean()
+                                            )
+                                            minimum = float(
+                                                values.min()
+                                            )
+                                            maximum = float(
+                                                values.max()
+                                            )
+
+                                            st.markdown(
+                                                f"""
+                                                <div style="
+                                                    display:grid;
+                                                    grid-template-columns:repeat(3,1fr);
+                                                    gap:.25rem;
+                                                    margin-top:-.2rem;
+                                                    margin-bottom:.2rem;
+                                                    text-align:center;
+                                                ">
+                                                    <div>
+                                                        <div style="color:#697991;font-size:.58rem;font-weight:800;text-transform:uppercase;">Média</div>
+                                                        <div style="color:#dbe7f5;font-size:.72rem;font-weight:800;">{avg:.2f} {item["unit"]}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style="color:#697991;font-size:.58rem;font-weight:800;text-transform:uppercase;">Mín.</div>
+                                                        <div style="color:#dbe7f5;font-size:.72rem;font-weight:800;">{minimum:.2f} {item["unit"]}</div>
+                                                    </div>
+                                                    <div>
+                                                        <div style="color:#697991;font-size:.58rem;font-weight:800;text-transform:uppercase;">Máx.</div>
+                                                        <div style="color:#dbe7f5;font-size:.72rem;font-weight:800;">{maximum:.2f} {item["unit"]}</div>
+                                                    </div>
+                                                </div>
+                                                """,
+                                                unsafe_allow_html=True,
+                                            )
+
+                            # ----------------------------
+                            # Vibração principal
+                            # ----------------------------
+
+                            st.markdown(
+                                "<div class='small' style='margin-top:.45rem;'>VIBRAÇÃO · mm/s RMS</div>",
+                                unsafe_allow_html=True,
                             )
 
-                            if len(metric_columns) == 1:
-                                with st.container():
-                                    title, value, delta = metric_columns[0]
-                                    st.metric(
-                                        title,
-                                        value,
-                                        delta,
-                                    )
-                            else:
-                                m1, m2 = st.columns(
-                                    len(metric_columns)
-                                )
+                            vibration_columns = st.columns(
+                                4
+                            )
 
-                                for col, metric_data in zip(
-                                    (m1, m2),
-                                    metric_columns
-                                ):
-                                    with col:
-                                        st.metric(
-                                            metric_data[0],
-                                            metric_data[1],
-                                            metric_data[2],
-                                        )
-
-                            active_temp_channels = [
-                                canal
-                                for canal in [
-                                    "AI005",
-                                    "AI006",
-                                    "AI007",
-                                    "AI008",
-                                ]
-                                if canal in active_ai
+                            vibration_axes = [
+                                ("Vibração máx.", "max"),
+                                ("X", "x_mm_s"),
+                                ("Y", "y_mm_s"),
+                                ("Z", "z_mm_s"),
                             ]
 
-                            if active_temp_channels:
-                                st.caption("Entradas analógicas")
-
-                                temp_columns = st.columns(
-                                    min(
-                                        4,
-                                        len(active_temp_channels)
+                            vibration_values = [
+                                safe_float(
+                                    row.get(
+                                        "x_mm_s"
                                     )
+                                ),
+                                safe_float(
+                                    row.get(
+                                        "y_mm_s"
+                                    )
+                                ),
+                                safe_float(
+                                    row.get(
+                                        "z_mm_s"
+                                    )
+                                ),
+                            ]
+
+                            valid_vibration = [
+                                value
+                                for value in vibration_values
+                                if np.isfinite(value)
+                            ]
+
+                            vibration_max = (
+                                max(
+                                    valid_vibration
                                 )
+                                if valid_vibration
+                                else np.nan
+                            )
 
-                                for index, canal_name in enumerate(
-                                    active_temp_channels
-                                ):
-                                    label, value = configured_metric(
-                                        canal_name
-                                    )
+                            for col, item in zip(
+                                vibration_columns,
+                                vibration_axes
+                            ):
 
-                                    with temp_columns[index]:
-                                        st.metric(
-                                            label,
-                                            value,
+                                with col:
+
+                                    if item[1] == "max":
+                                        value = vibration_max
+                                    else:
+                                        value = row.get(
+                                            f"{item[1]}"
                                         )
 
-                            st.caption("Vibração por eixo — mm/s RMS")
+                                    st.metric(
+                                        item[0],
+                                        format_value(
+                                            value,
+                                            3
+                                        ),
+                                    )
 
-                            v1, v2, v3 = st.columns(3)
+                            # ----------------------------
+                            # Outras entradas ativas
+                            # ----------------------------
 
-                            with v1:
-                                st.metric(
-                                    "X",
-                                    format_value(row.get("x_mm_s"), 3),
+                            extra_candidates = [
+                                item
+                                for item in candidates
+                                if item not in main_gauges
+                            ]
+
+                            if extra_candidates:
+
+                                st.markdown(
+                                    "<div class='small' style='margin-top:.35rem;'>OUTRAS ENTRADAS ATIVAS</div>",
+                                    unsafe_allow_html=True,
                                 )
 
-                            with v2:
-                                st.metric(
-                                    "Y",
-                                    format_value(row.get("y_mm_s"), 3),
+                                extra_columns = st.columns(
+                                    min(
+                                        4,
+                                        len(
+                                            extra_candidates
+                                        )
+                                    )
                                 )
 
-                            with v3:
-                                st.metric(
-                                    "Z",
-                                    format_value(row.get("z_mm_s"), 3),
-                                )
+                                for col, item in zip(
+                                    extra_columns,
+                                    extra_candidates
+                                ):
+
+                                    with col:
+
+                                        st.metric(
+                                            item["label"],
+                                            format_value(
+                                                item["value"],
+                                                2,
+                                                item["unit"]
+                                            ),
+                                        )
+
+                            # ----------------------------
+                            # Rodapé
+                            # ----------------------------
 
                             st.caption(
                                 f"Última leitura: {last_text}"
