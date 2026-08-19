@@ -2048,6 +2048,43 @@ def analog_gauge_html(title, value, unit, scale_min, scale_max, alarm_min=None, 
     </div>"""
 
 
+
+def render_alarm_card(
+    grandeza,
+    reason,
+    value_text,
+    limit_text,
+    when_text,
+):
+    html = (
+        '<div style="'
+        'margin:.35rem 0 .45rem;'
+        'padding:.55rem .7rem;'
+        'border-radius:10px;'
+        'background:#fff3f3;'
+        'border:1px solid #f1c6c9;'
+        '">'
+        f'<div style="color:#b33a43;font-size:.80rem;font-weight:900;">'
+        f'{grandeza}'
+        '</div>'
+        f'<div style="color:#5b6573;font-size:.73rem;margin-top:.10rem;">'
+        f'{reason}'
+        '</div>'
+        f'<div style="color:#253043;font-size:.78rem;font-weight:850;margin-top:.18rem;">'
+        f'Valor: {value_text} &nbsp; • &nbsp; Limite: {limit_text}'
+        '</div>'
+        f'<div style="color:#6f7b8b;font-size:.66rem;margin-top:.13rem;">'
+        f'{when_text}'
+        '</div>'
+        '</div>'
+    )
+
+    st.markdown(
+        html,
+        unsafe_allow_html=True,
+    )
+
+
 # ============================================================
 # DASHBOARD
 # ============================================================
@@ -2524,52 +2561,12 @@ if st.session_state.view == "dashboard":
                                         alarm.get("Data/Hora")
                                     )
 
-                                    st.markdown(
-                                        f"""
-                                        <div style="
-                                            margin:.35rem 0 .45rem;
-                                            padding:.55rem .7rem;
-                                            border-radius:10px;
-                                            background:#fff3f3;
-                                            border:1px solid #f1c6c9;
-                                        ">
-                                            <div style="
-                                                color:#b33a43;
-                                                font-size:.78rem;
-                                                font-weight:900;
-                                            ">
-                                                {alarm.get("Grandeza", "Alarme")}
-                                            </div>
-
-                                            <div style="
-                                                color:#5b6573;
-                                                font-size:.70rem;
-                                                margin-top:.10rem;
-                                            ">
-                                                {reason}
-                                            </div>
-
-                                            <div style="
-                                                color:#253043;
-                                                font-size:.76rem;
-                                                font-weight:850;
-                                                margin-top:.18rem;
-                                            ">
-                                                Valor: {value_text}
-                                                &nbsp; • &nbsp;
-                                                Limite: {limit_text}
-                                            </div>
-
-                                            <div style="
-                                                color:#7c8794;
-                                                font-size:.63rem;
-                                                margin-top:.13rem;
-                                            ">
-                                                {when_text}
-                                            </div>
-                                        </div>
-                                        """,
-                                        unsafe_allow_html=True,
+                                    render_alarm_card(
+                                        alarm.get("Grandeza", "Alarme"),
+                                        reason,
+                                        value_text,
+                                        limit_text,
+                                        when_text,
                                     )
 
                             # ----------------------------
