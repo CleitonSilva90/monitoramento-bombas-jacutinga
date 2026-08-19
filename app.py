@@ -1,5 +1,7 @@
 
 
+
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -507,6 +509,34 @@ def bar_to_mca(value):
     return value * MCA_PER_BAR if np.isfinite(value) else np.nan
 
 
+def to_sao_paulo_time(value):
+    """
+    Converte timestamps UTC para o horário de São Paulo somente na
+    apresentação. O banco continua armazenando UTC.
+    """
+    try:
+        ts = pd.to_datetime(value, utc=True, errors="coerce")
+
+        if pd.isna(ts):
+            return pd.NaT
+
+        return ts.tz_convert(
+            "America/Sao_Paulo"
+        )
+
+    except Exception:
+        return pd.NaT
+
+
+def format_local_datetime(value, fmt="%d/%m/%Y %H:%M:%S"):
+    ts = to_sao_paulo_time(value)
+
+    if pd.isna(ts):
+        return "sem leitura"
+
+    return ts.strftime(fmt)
+
+
 def latest_age_seconds(recebido_em):
     try:
         ts = pd.to_datetime(recebido_em, utc=True)
@@ -932,77 +962,15 @@ def load_telemetry():
         channel_configs = load_channel_configs()
 
         def row_status(row):
-            age = latest_age_seconds(row.get("recebido_em"))
-            if age > OFFLINE_AFTER_SECONDS:
-                return "Offline"
-
-            device_id = str(row.get("device_id", ""))
-            device_cfg = load_devices()
-            full_scale = 4.096
-
-            if not device_cfg.empty:
-                selected_device = device_cfg[
-                    device_cfg["device_id"].astype(str) == device_id
-                ]
-                if not selected_device.empty:
-                    full_scale = safe_float(
-                        selected_device.iloc[0].get("adc_full_scale_v"),
-                        4.096
-                    )
-
-            # Alarmes por canal, quando configurados.
-            for canal in range(1, 17):
-                canal_name = f"AI{canal:03d}"
-                cfg = get_channel_config(
-                    channel_configs,
-                    device_id,
-                    canal_name
-                )
-
-                if not cfg or not bool(cfg.get("ativo", True)):
-                    continue
-
-                value = get_channel_value(
-                    row,
-                    channel_configs,
-                    device_id,
-                    canal_name,
-                    full_scale
-                )
-
-                if not np.isfinite(value):
-                    continue
-
-                alarm_min = safe_float(cfg.get("alarme_min"))
-                alarm_max = safe_float(cfg.get("alarme_max"))
-
-                if np.isfinite(alarm_min) and value < alarm_min:
-                    return "Alarme"
-
-                if np.isfinite(alarm_max) and value > alarm_max:
-                    return "Alarme"
-
-            # Compatibilidade com os limites globais de vibração.
-            vibration = [
-                safe_float(row.get("x_mm_s")),
-                safe_float(row.get("y_mm_s")),
-                safe_float(row.get("z_mm_s")),
-            ]
-            vibration = [
-                v for v in vibration
-                if np.isfinite(v)
-            ]
-
-            v_limit = safe_float(
-                global_config.get("limite_rms")
+            # STATUS DE COMUNICAÇÃO:
+            # Online/Offline depende exclusivamente da idade da telemetria.
+            # Alarmes de processo não devem fazer o equipamento parecer offline.
+            age = latest_age_seconds(
+                row.get("recebido_em")
             )
 
-            if (
-                vibration
-                and np.isfinite(v_limit)
-                and max(vibration) > v_limit
-            ):
-                return "Alarme"
+            if age > OFFLINE_AFTER_SECONDS:
+                return "Offline"
 
             return "Online"
 
@@ -1792,7 +1760,7 @@ with top[3]:
 
 st.caption(
     f"Atualização automática a cada {REFRESH_SECONDS}s • "
-    f"Última atualização: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}"
+    f"Última atualização: {format_local_datetime(datetime.now(timezone.utc))}"
 )
 
 
@@ -1820,8 +1788,15 @@ if st.session_state.view == "dashboard":
         )
     else:
         total = len(device_rows)
-        online = int((device_rows["status"] == "Online").sum())
-        alarms = int((device_rows["status"] == "Alarme").sum())
+        online = int(
+            (device_rows["status"] == "Online").sum()
+        )
+        alarms = int(
+            sum(
+                health_score(row) < 80
+                for _, row in device_rows.iterrows()
+            )
+        )
 
         k1, k2, k3 = st.columns(3)
 
@@ -1911,10 +1886,8 @@ if st.session_state.view == "dashboard":
                         )
 
                         last = row.get("recebido_em")
-                        last_text = (
-                            pd.to_datetime(last).strftime("%d/%m/%Y %H:%M:%S")
-                            if pd.notna(last)
-                            else "sem leitura"
+                        last_text = format_local_datetime(
+                            last
                         )
 
                         def configured_metric(canal):
@@ -2033,27 +2006,9 @@ if st.session_state.view == "dashboard":
                         ]
                         vibration_max = max(vibration_values) if vibration_values else np.nan
 
-                        # Pressão é exibida em bar e MCA.
-                        pressure_text = format_value(
-                            pressure,
-                            int(
-                                safe_float(
-                                    pressure_cfg.get("decimais"),
-                                    2
-                                )
-                            ),
-                            pressure_unit
-                        )
-
-                        mca_text = (
-                            format_value(
-                                pressure_mca,
-                                1,
-                                "MCA"
-                            )
-                            if np.isfinite(pressure_mca)
-                            else "—"
-                        )
+                        # pressure_text e mca_text já foram definidos
+                        # somente quando AI004 está ativa. Quando a entrada
+                        # de pressão está desativada, permanecem como "—".
 
                         # Renderização nativa do Streamlit.
                         # Evitamos HTML livre dentro do cartão para impedir
