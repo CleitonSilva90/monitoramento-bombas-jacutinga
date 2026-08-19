@@ -115,11 +115,11 @@ st.markdown(
         [data-testid="stVerticalBlockBorderWrapper"]>div{padding-top:.65rem!important;padding-bottom:.65rem!important}[data-testid="stVerticalBlockBorderWrapper"] h3{color:#162033!important;font-size:1.16rem!important;font-weight:900!important}[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"]{color:#798594!important}[data-testid="stVerticalBlockBorderWrapper"] hr{border-color:#e5e8ed!important;margin:.55rem 0 .7rem!important}
         [data-testid="stMetricLabel"]{color:#707c8b!important;font-size:.65rem!important;font-weight:800!important}[data-testid="stMetricValue"]{color:#172131!important;font-size:1.05rem!important;font-weight:900!important}[data-testid="stMetricDelta"]{color:#7b8594!important;font-size:.64rem!important}
         .pill-online,.pill-offline,.pill-alarm{display:inline-flex;align-items:center;padding:.3rem .58rem;border-radius:999px;font-size:.63rem;font-weight:850}.pill-online{color:#21825b;background:#e6f7ef;border:1px solid #bce7d1}.pill-offline{color:#5f6b79;background:#f1f3f5;border:1px solid #dfe4e9}.pill-alarm{color:#b43b44;background:#fdebec;border:1px solid #f2c4c7}
-        .compact-gauge{width:100%;background:#fff;border:1px solid #e0e5eb;border-radius:12px;padding:.62rem .72rem .50rem;box-shadow:0 2px 9px rgba(31,41,55,.035)}
+        .compact-gauge{width:100%;background:#fff;border:1px solid #e0e5eb;border-radius:12px;padding:.42rem .56rem .38rem;box-shadow:0 2px 9px rgba(31,41,55,.035)}
         .compact-gauge-head{display:flex;align-items:baseline;justify-content:space-between;gap:.55rem}
-        .compact-gauge-title{color:#4a586a;font-size:.72rem;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-        .compact-gauge-value{color:#172132;font-size:1.04rem;font-weight:900;white-space:nowrap}
-        .compact-gauge-track{height:9px;margin-top:.46rem;border-radius:999px;background:#e7ebef;overflow:hidden}
+        .compact-gauge-title{color:#4a586a;font-size:.86rem;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .compact-gauge-value{color:#172132;font-size:1.18rem;font-weight:900;white-space:nowrap}
+        .compact-gauge-track{height:7px;margin-top:.34rem;border-radius:999px;background:#e7ebef;overflow:hidden}
         .compact-gauge-fill{height:100%;border-radius:999px;min-width:2%}
         .compact-gauge-range{display:flex;justify-content:space-between;margin-top:.24rem;color:#657183;font-size:.58rem;font-weight:800}
         div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
