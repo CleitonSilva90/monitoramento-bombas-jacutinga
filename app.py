@@ -949,8 +949,6 @@ def build_alarms(df):
 
     configs = load_channel_configs()
     devices = load_devices()
-    global_config = load_global_config()
-
     for _, row in df.iterrows():
         device_id = str(
             row.get("device_id", "—")
@@ -3982,68 +3980,19 @@ elif st.session_state.view == "config":
                         )
 
         st.markdown("---")
-        st.markdown("### Limites de alarme")
+        st.info(
+            "Os limites de alarme das entradas analógicas são configurados "
+            "diretamente em cada AI, junto com a escala e a unidade. "
+            "Essa é a configuração utilizada pelo sistema de alarmes."
+        )
 
-        with st.form("global_config_form"):
-            pressure_limit = st.number_input(
-                "Pressão mínima (bar)",
-                value=float(
-                    safe_float(load_global_config().get("limite_pressao"), 2.0)
-                ),
-                step=0.1,
-            )
-
-            vibration_limit = st.number_input(
-                "Vibração máxima (mm/s RMS)",
-                value=float(
-                    safe_float(load_global_config().get("limite_rms"), 5.0)
-                ),
-                step=0.1,
-            )
-
-            mancal_limit = st.number_input(
-                "Limite AI006 (°C)",
-                value=float(
-                    safe_float(load_global_config().get("limite_mancal"), 75.0)
-                ),
-                step=1.0,
-            )
-
-            oil_limit = st.number_input(
-                "Limite AI007 (°C)",
-                value=float(
-                    safe_float(load_global_config().get("limite_oleo"), 80.0)
-                ),
-                step=1.0,
-            )
-
-            save_limits = st.form_submit_button(
-                "Salvar limites",
-                type="primary",
-            )
-
-        if save_limits:
-            try:
-                (
-                    supabase
-                    .table("configuracoes")
-                    .update({
-                        "limite_pressao": pressure_limit,
-                        "limite_rms": vibration_limit,
-                        "limite_mancal": mancal_limit,
-                        "limite_oleo": oil_limit,
-                    })
-                    .eq("id", 1)
-                    .execute()
-                )
-
-                load_global_config.clear()
-                st.success("Limites salvos.")
-                st.rerun()
-
-            except Exception as exc:
-                st.error("Não foi possível salvar os limites.")
-                st.exception(exc)
+        st.markdown(
+            "<div class='small' style='margin-top:.35rem;'>"
+            "A vibração dos eixos X/Y/Z é uma aquisição nativa do AXION e "
+            "possui tratamento separado dos limites das entradas analógicas."
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
 
 # ============================================================
