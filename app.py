@@ -1,6 +1,7 @@
 
 
 
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -1500,17 +1501,20 @@ def update_channel(device_id, canal, payload):
                 on_conflict="device_id,canal",
             )
             .select("*")
-            .single()
             .execute()
         )
 
-        saved = response.data
+        rows = response.data or []
 
-        if not saved:
+        if not rows:
             return False, (
                 f"Supabase não retornou a configuração salva "
                 f"para {device_id}/{channel_name_from_number(canal_db)}."
             )
+
+        # O PostgREST/Supabase Python pode retornar uma lista mesmo
+        # quando o upsert afeta apenas uma linha.
+        saved = rows[0]
 
         if (
             str(saved.get("device_id")).strip() != device_id
@@ -1520,6 +1524,45 @@ def update_channel(device_id, canal, payload):
                 "A linha retornada pelo Supabase não corresponde "
                 "ao canal solicitado."
             )
+
+        # Confirma no banco o valor efetivamente gravado.
+        verify = (
+            supabase
+            .table("configuracao_analogica")
+            .select(
+                "device_id,canal,nome_exibicao,tipo_entrada,"
+                "shunt_150r,unidade,eng_min,eng_max,ativo,"
+                "alarme_min,alarme_max"
+            )
+            .eq("device_id", device_id)
+            .eq("canal", canal_db)
+            .limit(1)
+            .execute()
+        )
+
+        verified_rows = verify.data or []
+
+        if not verified_rows:
+            return False, (
+                f"Não foi possível confirmar no Supabase a configuração "
+                f"de {device_id}/{channel_name_from_number(canal_db)}."
+            )
+
+        verified = verified_rows[0]
+
+        expected_checks = {
+            "nome_exibicao": data.get("nome_exibicao"),
+            "tipo_entrada": data.get("tipo_entrada"),
+            "shunt_150r": data.get("shunt_150r"),
+            "unidade": data.get("unidade"),
+            "ativo": data.get("ativo"),
+        }
+
+        for field, expected in expected_checks.items():
+            if verified.get(field) != expected:
+                return False, (
+                    f"Supabase confirmou um valor diferente em '{field}'."
+                )
 
         load_channel_configs.clear()
         return True, None
