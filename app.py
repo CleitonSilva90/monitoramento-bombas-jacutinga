@@ -352,6 +352,80 @@ st.markdown(
             font-weight: 750 !important;
         }
 
+
+        /* ---------------- Configuration forms ---------------- */
+
+        [data-testid="stForm"] {
+            color: #f8fafc !important;
+        }
+
+        [data-testid="stForm"] label,
+        [data-testid="stForm"] label p,
+        [data-testid="stForm"] label span {
+            color: #e2e8f0 !important;
+            font-weight: 700 !important;
+        }
+
+        [data-testid="stForm"] input,
+        [data-testid="stForm"] textarea {
+            color: #ffffff !important;
+            background: #162038 !important;
+            -webkit-text-fill-color: #ffffff !important;
+            border-color: #94a3b8 !important;
+            opacity: 1 !important;
+        }
+
+        [data-testid="stForm"] input::placeholder,
+        [data-testid="stForm"] textarea::placeholder {
+            color: #94a3b8 !important;
+            -webkit-text-fill-color: #94a3b8 !important;
+            opacity: 1 !important;
+        }
+
+        /* Campos somente leitura / desabilitados */
+        [data-testid="stForm"] input:disabled,
+        [data-testid="stForm"] textarea:disabled {
+            color: #cbd5e1 !important;
+            -webkit-text-fill-color: #cbd5e1 !important;
+            background: #111a2e !important;
+            border-color: #64748b !important;
+            opacity: 1 !important;
+        }
+
+        [data-testid="stForm"] [data-baseweb="select"] > div {
+            background: #162038 !important;
+            border-color: #94a3b8 !important;
+        }
+
+        [data-testid="stForm"] [data-baseweb="select"] span,
+        [data-testid="stForm"] [data-baseweb="select"] input {
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+        }
+
+        [data-testid="stForm"] [data-testid="stCheckbox"] label,
+        [data-testid="stForm"] [data-testid="stCheckbox"] label p {
+            color: #f8fafc !important;
+            font-weight: 750 !important;
+        }
+
+        [data-testid="stForm"] button {
+            color: #ffffff !important;
+            background: #2563eb !important;
+            border-color: #3b82f6 !important;
+        }
+
+        [data-testid="stForm"] button:hover {
+            background: #1d4ed8 !important;
+            border-color: #60a5fa !important;
+        }
+
+        /* Títulos/descrições dentro da configuração */
+        [data-testid="stExpander"] p,
+        [data-testid="stExpander"] small {
+            color: #cbd5e1 !important;
+        }
+
         /* ---------------- Responsive / mobile ---------------- */
 
         @media (max-width: 900px) {
@@ -1737,13 +1811,21 @@ elif st.session_state.view == "config":
 
                     st.text_input(
                         "Tipo do sensor",
-                        value=str(cfg.get("tipo_sensor") or "—"),
+                        value=str(
+                            cfg.get("tipo_sensor")
+                            or cfg.get("role")
+                            or "—"
+                        ),
                         disabled=True,
                     )
 
                     st.text_input(
                         "Entrada física",
-                        value=str(cfg.get("entrada_tipo") or "—"),
+                        value=str(
+                            cfg.get("entrada_tipo")
+                            or cfg.get("modo")
+                            or "—"
+                        ),
                         disabled=True,
                     )
 
