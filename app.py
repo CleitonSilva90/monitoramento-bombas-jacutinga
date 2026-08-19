@@ -1,4 +1,3 @@
-
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -96,26 +95,16 @@ st.markdown(
             --bg: #080c16;
             --surface: #111827;
             --surface-2: #151f33;
-            --surface-3: #0d1422;
-            --border: #27364d;
-            --border-soft: rgba(148,163,184,.16);
-
+            --border: #28364d;
             --text: #f8fafc;
-            --muted: #94a3b8;
-            --muted-2: #64748b;
-
-            --blue: #4f7cff;
-            --blue-2: #3b82f6;
-            --blue-soft: rgba(79,124,255,.12);
-
-            --green: #19c37d;
-            --green-soft: rgba(25,195,125,.12);
-
-            --amber: #f5b942;
-            --amber-soft: rgba(245,185,66,.12);
-
-            --red: #ff5c64;
-            --red-soft: rgba(255,92,100,.12);
+            --muted: #8fa0b8;
+            --muted-2: #66758c;
+            --blue: #587cff;
+            --blue-soft: rgba(88,124,255,.12);
+            --green: #25d58c;
+            --green-soft: rgba(37,213,140,.12);
+            --red: #ff626b;
+            --red-soft: rgba(255,98,107,.12);
         }
 
         * {
@@ -124,10 +113,15 @@ st.markdown(
 
         .stApp {
             background:
-                radial-gradient(circle at 15% 0%, rgba(79,124,255,.08), transparent 28%),
-                radial-gradient(circle at 100% 0%, rgba(25,195,125,.05), transparent 24%),
+                radial-gradient(circle at 15% 0%, rgba(88,124,255,.07), transparent 28%),
+                radial-gradient(circle at 100% 0%, rgba(37,213,140,.04), transparent 24%),
                 var(--bg);
             color: var(--text);
+        }
+
+        .block-container {
+            max-width: 1500px;
+            padding: .85rem 1rem 2rem;
         }
 
         body,
@@ -141,70 +135,66 @@ st.markdown(
             text-rendering: optimizeLegibility;
         }
 
-        .block-container {
-            max-width: 1500px;
-            padding: .85rem 1.1rem 2rem;
+        [data-testid="stHeader"] {
+            display: none;
         }
 
-        /* ---------------- Navigation ---------------- */
-
+        /* Header */
         .top-card {
             background: linear-gradient(180deg, #121b2c 0%, #0f1726 100%);
             border: 1px solid var(--border);
             border-radius: 14px;
-            padding: .85rem 1rem;
-            box-shadow: 0 8px 30px rgba(0,0,0,.14);
+            padding: .82rem 1rem;
+            box-shadow: 0 8px 28px rgba(0,0,0,.12);
         }
 
         .brand-title {
-            font-size: 1.35rem;
+            color: #ffffff;
+            font-size: 1.25rem;
             font-weight: 900;
-            letter-spacing: -.02em;
-            color: #f8fafc;
-            line-height: 1.1;
+            letter-spacing: -.025em;
+            line-height: 1.05;
         }
 
         .brand-accent {
-            color: #79a0ff;
+            color: #7696ff;
         }
 
         .brand-sub {
-            margin-top: .35rem;
-            color: #94a3b8;
-            font-size: .73rem;
-            font-weight: 600;
+            margin-top: .28rem;
+            color: #8797ac;
+            font-size: .68rem;
+            font-weight: 650;
         }
 
+        /* Navigation */
         div.stButton > button {
             width: 100%;
             min-height: 44px;
             border-radius: 10px;
-            border: 1px solid #33445e;
+            border: 1px solid #33445d;
             background: #111a2b;
-            color: #dbe7f5;
+            color: #dbe5f1;
             font-weight: 750;
-            font-size: .82rem;
+            font-size: .80rem;
             box-shadow: none;
-            transition: .15s ease;
         }
 
         div.stButton > button:hover {
-            border-color: #587cff;
-            background: #182540;
+            border-color: #5a7dff;
+            background: #18243a;
             color: #ffffff;
-            transform: translateY(-1px);
         }
 
         div.stButton > button[kind="primary"] {
-            background: linear-gradient(180deg, #4f7cff 0%, #3f67e8 100%);
-            border-color: #5f88ff;
+            background: linear-gradient(180deg, #587cff 0%, #4669e7 100%);
+            border-color: #6488ff;
             color: #ffffff;
-            box-shadow: 0 6px 18px rgba(79,124,255,.22);
+            box-shadow: 0 5px 16px rgba(88,124,255,.20);
         }
 
         div.stButton > button[kind="primary"]:hover {
-            background: linear-gradient(180deg, #5b84ff 0%, #466ff3 100%);
-            border-color: #79a0ff;
+            background: linear-gradient(180deg, #6689ff 0%, #5074f1 100%);
         }
 
         div.stButton > button p {
@@ -212,89 +202,65 @@ st.markdown(
             font-weight: 750 !important;
         }
 
-        /* ---------------- Page rhythm ---------------- */
+        /* Typography */
+        .page-kicker {
+            margin-top: .25rem;
+            color: #677890;
+            font-size: .66rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: .12em;
+        }
 
+        .page-title,
         h1, h2, h3 {
             color: #f8fafc !important;
-            letter-spacing: -.02em;
-        }
-
-        [data-testid="stHeader"] {
-            display: none;
-        }
-
-        .page-kicker {
-            color: #64748b;
-            font-size: .72rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: .11em;
-        }
-
-        .page-title {
-            color: #f8fafc;
-            font-size: 1.65rem;
-            font-weight: 900;
-            margin-top: .15rem;
-            margin-bottom: .65rem;
             letter-spacing: -.03em;
         }
 
+        .page-title {
+            margin-top: .12rem;
+            margin-bottom: .6rem;
+            font-size: 1.55rem;
+            font-weight: 900;
+        }
+
         .muted {
-            color: #a8b4c7 !important;
-            font-size: .78rem;
+            color: #a8b4c4 !important;
+            font-size: .77rem;
             font-weight: 600;
         }
 
         .small {
-            color: #94a3b8 !important;
-            font-size: .72rem;
+            color: #8797ac !important;
+            font-size: .70rem;
             font-weight: 700;
         }
 
-        /* ---------------- KPI cards ---------------- */
-
+        /* KPI */
         .kpi {
             background: linear-gradient(180deg, #111a2b 0%, #0f1725 100%);
             border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: .9rem 1rem;
-            min-height: 92px;
-            box-shadow: 0 8px 24px rgba(0,0,0,.10);
-        }
-
-        .kpi-top {
-            color: #94a3b8;
-            font-size: .67rem;
-            font-weight: 850;
-            text-transform: uppercase;
-            letter-spacing: .1em;
+            border-radius: 13px;
+            padding: .82rem .95rem;
+            min-height: 88px;
+            box-shadow: 0 7px 22px rgba(0,0,0,.08);
         }
 
         .kpi-value {
-            margin-top: .22rem;
-            color: #ffffff;
-            font-size: 1.8rem;
+            margin-top: .18rem;
+            font-size: 1.75rem;
             line-height: 1;
             font-weight: 900;
+            color: #ffffff;
         }
 
-        .kpi-green {
-            color: var(--green) !important;
-        }
-
-        .kpi-red {
-            color: var(--red) !important;
-        }
-
-        /* ---------------- Location ---------------- */
-
+        /* Location */
         .location-title {
-            margin-top: 1.25rem;
-            margin-bottom: .65rem;
-            padding-left: .15rem;
+            margin-top: 1.1rem;
+            margin-bottom: .55rem;
             color: #dbe7f5;
-            font-size: .86rem;
+            font-size: .82rem;
             font-weight: 850;
             letter-spacing: .01em;
         }
@@ -304,108 +270,112 @@ st.markdown(
             display: inline-block;
             width: 7px;
             height: 7px;
+            margin-right: 7px;
             border-radius: 50%;
-            background: #4f7cff;
-            margin-right: 8px;
-            box-shadow: 0 0 12px rgba(79,124,255,.55);
+            background: var(--blue);
+            box-shadow: 0 0 10px rgba(88,124,255,.45);
             vertical-align: middle;
         }
 
-        /* ---------------- Device card ---------------- */
-
+        /* Device card */
         [data-testid="stVerticalBlockBorderWrapper"] {
-            background: linear-gradient(180deg, #111a2b 0%, #0e1624 100%);
-            border-color: var(--border) !important;
-            border-radius: 16px !important;
-            box-shadow: 0 10px 32px rgba(0,0,0,.13);
+            background: linear-gradient(180deg, rgba(17,26,43,.98) 0%, rgba(13,20,33,.98) 100%) !important;
+            border-color: #28364d !important;
+            border-radius: 15px !important;
+            box-shadow: 0 9px 28px rgba(0,0,0,.12);
         }
 
-        [data-testid="stVerticalBlockBorderWrapper"]:hover {
-            border-color: #36517c !important;
+        [data-testid="stVerticalBlockBorderWrapper"] > div {
+            padding-top: .7rem !important;
+            padding-bottom: .72rem !important;
         }
 
-        .device-name {
-            color: #ffffff;
-            font-size: 1.18rem;
-            font-weight: 900;
-            letter-spacing: -.02em;
+        /* Device header native elements */
+        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"] {
+            color: #74859c !important;
         }
 
-        .device-meta {
-            color: #7f91aa;
-            font-size: .73rem;
-            font-weight: 700;
-            margin-top: .15rem;
+        [data-testid="stVerticalBlockBorderWrapper"] h3 {
+            font-size: 1.18rem !important;
+            font-weight: 900 !important;
+            margin-bottom: .05rem !important;
         }
 
-        .card-separator {
-            height: 1px;
-            background: linear-gradient(90deg, rgba(79,124,255,.35), rgba(148,163,184,.08));
-            margin: .75rem 0 .9rem;
+        [data-testid="stVerticalBlockBorderWrapper"] hr {
+            border-color: rgba(148,163,184,.10) !important;
+            margin: .55rem 0 .7rem !important;
         }
 
-        /* ---------------- Status ---------------- */
+        /* Metrics */
+        [data-testid="stMetric"] {
+            padding: .18rem 0 !important;
+        }
 
+        [data-testid="stMetricLabel"] {
+            color: #8798ad !important;
+            font-size: .66rem !important;
+            font-weight: 800 !important;
+            letter-spacing: .02em !important;
+        }
+
+        [data-testid="stMetricValue"] {
+            color: #ffffff !important;
+            font-size: 1.08rem !important;
+            font-weight: 900 !important;
+            letter-spacing: -.02em !important;
+        }
+
+        [data-testid="stMetricDelta"] {
+            color: #92a2b7 !important;
+            font-size: .66rem !important;
+            font-weight: 700 !important;
+        }
+
+        /* Section labels */
+        [data-testid="stVerticalBlockBorderWrapper"] .stCaption,
+        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"] {
+            color: #75869c !important;
+        }
+
+        /* Status */
         .pill-online,
         .pill-offline,
         .pill-alarm {
             display: inline-flex;
             align-items: center;
-            gap: 7px;
-            padding: .34rem .62rem;
+            padding: .31rem .60rem;
             border-radius: 999px;
+            font-size: .65rem;
             font-weight: 850;
-            font-size: .68rem;
             letter-spacing: .04em;
         }
 
         .pill-online {
-            color: #44e09a;
+            color: #48e49c;
             background: var(--green-soft);
-            border: 1px solid rgba(25,195,125,.30);
+            border: 1px solid rgba(37,213,140,.28);
         }
 
         .pill-offline {
             color: #cbd5e1;
-            background: rgba(100,116,139,.12);
-            border: 1px solid rgba(148,163,184,.22);
+            background: rgba(100,116,139,.10);
+            border: 1px solid rgba(148,163,184,.20);
         }
 
         .pill-alarm {
-            color: #ff858b;
+            color: #ff858c;
             background: var(--red-soft);
-            border: 1px solid rgba(255,92,100,.28);
+            border: 1px solid rgba(255,98,107,.26);
         }
 
-        [data-testid="stMetricLabel"] {
-            color: #8fa0b8 !important;
-            font-size: .68rem !important;
-            font-weight: 800 !important;
-            letter-spacing: .03em !important;
-        }
-
-        [data-testid="stMetricValue"] {
-            color: #ffffff !important;
-            font-size: 1.12rem !important;
-            font-weight: 900 !important;
-            letter-spacing: -.02em;
-        }
-
-        [data-testid="stMetricDelta"] {
-            color: #94a3b8 !important;
-            font-weight: 700 !important;
-            font-size: .68rem !important;
-        }
-
-        /* ---------------- Forms / inputs ---------------- */
-
+        /* Forms */
         div[data-baseweb="select"] > div,
         div[data-baseweb="input"] > div,
         textarea,
         input {
             background: #121c2e !important;
             color: #f8fafc !important;
-            border-color: #344760 !important;
+            border-color: #3a4b63 !important;
         }
 
         div[data-baseweb="select"] span,
@@ -416,30 +386,13 @@ st.markdown(
         [data-testid="stForm"] label,
         [data-testid="stForm"] label p,
         [data-testid="stForm"] label span {
-            color: #d9e2ef !important;
+            color: #d9e2ee !important;
             font-weight: 750 !important;
         }
 
-        [data-testid="stForm"] input,
-        [data-testid="stForm"] textarea {
-            color: #ffffff !important;
-            background: #121c2e !important;
-            -webkit-text-fill-color: #ffffff !important;
-            border-color: #51637b !important;
-        }
-
-        [data-testid="stForm"] input:disabled,
-        [data-testid="stForm"] textarea:disabled {
-            color: #aab7c9 !important;
-            -webkit-text-fill-color: #aab7c9 !important;
-            background: #0d1522 !important;
-            border-color: #33445e !important;
-            opacity: 1 !important;
-        }
-
         [data-testid="stExpander"] {
-            border: 1px solid #2b3b53;
-            border-radius: 12px;
+            border: 1px solid #2a3a52;
+            border-radius: 11px;
             background: #10192a;
         }
 
@@ -448,248 +401,34 @@ st.markdown(
             font-weight: 800 !important;
         }
 
-        /* ---------------- Download / alerts ---------------- */
-
-        [data-testid="stDownloadButton"] button {
-            border-radius: 10px !important;
-            background: linear-gradient(180deg, #4f7cff 0%, #3f67e8 100%) !important;
-            border: 1px solid #5f88ff !important;
-            color: #fff !important;
-            font-weight: 800 !important;
-        }
-
-        [data-testid="stAlert"] {
-            border-radius: 12px !important;
-            border: 1px solid #2b3b53 !important;
-        }
-
-
-        /* ---------------- V17 dashboard polish ---------------- */
-
-        .device-header-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: .8rem;
-            padding-bottom: .75rem;
-            border-bottom: 1px solid rgba(148,163,184,.09);
-        }
-
-        .device-header-left {
-            min-width: 0;
-        }
-
-        .device-location-mini {
-            color: #71829a;
-            font-size: .62rem;
-            font-weight: 850;
-            text-transform: uppercase;
-            letter-spacing: .10em;
-        }
-
-        .device-title {
-            color: #ffffff;
-            font-size: 1.34rem;
-            font-weight: 900;
-            line-height: 1.08;
-            letter-spacing: -.035em;
-            margin-top: .12rem;
-        }
-
-        .device-id {
-            color: #697991;
-            font-size: .67rem;
-            font-weight: 650;
-            margin-top: .2rem;
-        }
-
-        .health-chip {
-            min-width: 86px;
-            padding: .48rem .55rem;
-            border-radius: 11px;
-            background: rgba(255,255,255,.025);
-            border: 1px solid rgba(148,163,184,.10);
-            text-align: center;
-        }
-
-        .health-chip-label {
-            color: #66758b;
-            font-size: .57rem;
-            font-weight: 850;
-            text-transform: uppercase;
-            letter-spacing: .09em;
-        }
-
-        .health-chip-value {
-            color: #ffffff;
-            font-size: 1.28rem;
-            font-weight: 900;
-            line-height: 1;
-            margin-top: .18rem;
-        }
-
-        .quick-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: .55rem;
-            margin-top: .75rem;
-        }
-
-        .quick-tile {
-            min-width: 0;
-            padding: .6rem .68rem;
-            border-radius: 10px;
-            background: rgba(15,23,42,.28);
-            border: 1px solid rgba(148,163,184,.08);
-        }
-
-        .quick-label {
-            color: #72829a;
-            font-size: .59rem;
-            font-weight: 850;
-            text-transform: uppercase;
-            letter-spacing: .07em;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .quick-value {
-            color: #f8fafc;
-            font-size: 1.01rem;
-            font-weight: 900;
-            margin-top: .16rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .subsection-label {
-            margin-top: .78rem;
-            margin-bottom: .38rem;
-            color: #73839a;
-            font-size: .60rem;
-            font-weight: 850;
-            text-transform: uppercase;
-            letter-spacing: .09em;
-        }
-
-        .axis-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: .55rem;
-        }
-
-        .axis-item {
-            padding: .55rem .65rem;
-            border-radius: 10px;
-            background: rgba(255,255,255,.018);
-            border: 1px solid rgba(148,163,184,.07);
-        }
-
-        .axis-name {
-            color: #71829a;
-            font-size: .59rem;
-            font-weight: 850;
-        }
-
-        .axis-number {
-            color: #ffffff;
-            font-size: 1.00rem;
-            font-weight: 900;
-            margin-top: .12rem;
-        }
-
-        .device-footer {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            gap: .75rem;
-            padding-top: .65rem;
-            margin-top: .75rem;
-            border-top: 1px solid rgba(148,163,184,.07);
-        }
-
-        .device-last-read {
-            color: #65758c;
-            font-size: .62rem;
-            font-weight: 650;
-        }
-
-        /* Let a single device use the available width naturally. */
-        [data-testid="stVerticalBlockBorderWrapper"] {
-            min-height: 0;
-            padding-top: .5rem !important;
-            padding-bottom: .5rem !important;
-        }
-
-        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMetric"] {
-            padding: .15rem 0;
-        }
-
-        @media (max-width: 1100px) {
-            .quick-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-        }
-
-        @media (max-width: 650px) {
-            .quick-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-
-            .device-title {
-                font-size: 1.16rem;
-            }
-
-            .health-chip {
-                min-width: 74px;
-            }
-
-            .health-chip-value {
-                font-size: 1.12rem;
-            }
-        }
-
-        /* ---------------- Mobile ---------------- */
-
+        /* Mobile */
         @media (max-width: 900px) {
             .block-container {
-                padding: .65rem .65rem 1.3rem;
+                padding: .65rem .65rem 1.25rem;
             }
 
             .top-card {
-                padding: .8rem .9rem;
+                padding: .75rem .85rem;
             }
 
             .brand-title {
-                font-size: 1.12rem;
-            }
-
-            .brand-sub {
-                font-size: .68rem;
+                font-size: 1.08rem;
             }
 
             .page-title {
-                font-size: 1.35rem;
+                font-size: 1.32rem;
             }
 
             .kpi {
-                min-height: 82px;
-                padding: .75rem .8rem;
+                min-height: 80px;
             }
 
             .kpi-value {
-                font-size: 1.45rem;
+                font-size: 1.48rem;
             }
 
             [data-testid="stMetricValue"] {
                 font-size: 1.0rem !important;
-            }
-
-            div.stButton > button {
-                min-height: 46px;
-                font-size: .78rem;
             }
         }
     </style>
@@ -2395,12 +2134,10 @@ with top[0]:
     st.markdown(
         """
         <div class="top-card">
-            <div class="brand-title">
-                AXION <span class="brand-accent">| Monitoramento Industrial</span>
+            <div style="font-size:2rem;font-weight:850;">
+                AXION <span style="color:#3b82f6;">| Monitoramento Industrial</span>
             </div>
-            <div class="brand-sub">
-                Telemetria HTTPS • Supabase • Atualização automática 30 s
-            </div>
+            <div class="muted">Telemetria via HTTPS → Supabase • Atualização automática: 30 s</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2488,7 +2225,7 @@ if st.session_state.view == "dashboard":
             st.markdown(
                 f"""
                 <div class="kpi">
-                    <div class="kpi-top">Dispositivos</div>
+                    <div class="small">DISPOSITIVOS</div>
                     <div class="kpi-value">{total}</div>
                 </div>
                 """,
@@ -2499,8 +2236,8 @@ if st.session_state.view == "dashboard":
             st.markdown(
                 f"""
                 <div class="kpi">
-                    <div class="kpi-top">Online</div>
-                    <div class="kpi-value kpi-green">{online}</div>
+                    <div class="small">ONLINE</div>
+                    <div class="kpi-value" style="color:#10b981;">{online}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2510,8 +2247,8 @@ if st.session_state.view == "dashboard":
             st.markdown(
                 f"""
                 <div class="kpi">
-                    <div class="kpi-top">Alarmes</div>
-                    <div class="kpi-value kpi-red">{alarms}</div>
+                    <div class="small">ALARMES</div>
+                    <div class="kpi-value" style="color:#ef4444;">{alarms}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2546,13 +2283,10 @@ if st.session_state.view == "dashboard":
                 unsafe_allow_html=True,
             )
 
-            # O número de colunas acompanha a quantidade de equipamentos
-            # naquele local. Um único equipamento usa toda a largura.
-            col_count = min(3, max(1, len(subset)))
-
-            for start in range(0, len(subset), col_count):
-                row_items = subset.iloc[start:start + col_count]
-                columns = st.columns(col_count)
+            # 3 cards por linha, preparado para as 6 bombas.
+            for start in range(0, len(subset), 3):
+                row_items = subset.iloc[start:start + 3]
+                columns = st.columns(3)
 
                 for index, (_, row) in enumerate(row_items.iterrows()):
                     with columns[index]:
@@ -2702,19 +2436,12 @@ if st.session_state.view == "dashboard":
                         # que o Streamlit exiba as tags como texto.
                         with st.container(border=True):
 
-                            header_left, header_right = st.columns([4, 1])
+                            header_left, header_right = st.columns([3.2, 1])
 
                             with header_left:
-                                st.markdown(
-                                    f"""
-                                    <div class='device-header-left'>
-                                        <div class='device-location-mini'>{location}</div>
-                                        <div class='device-title'>{name}</div>
-                                        <div class='device-id'>{device_id}</div>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
-                                )
+                                st.caption(str(location))
+                                st.subheader(name)
+                                st.caption(device_id)
 
                             with header_right:
                                 status = str(
@@ -2726,134 +2453,121 @@ if st.session_state.view == "dashboard":
                                     unsafe_allow_html=True,
                                 )
 
-                                st.markdown(
-                                    f"""
-                                    <div class='health-chip'>
-                                        <div class='health-chip-label'>Saúde</div>
-                                        <div class='health-chip-value'>{score}</div>
-                                    </div>
-                                    """,
-                                    unsafe_allow_html=True,
+                                st.metric(
+                                    "Saúde",
+                                    str(score),
                                 )
 
-                            # ---------------- Valores principais ----------------
-                            quick_items = []
+                            st.divider()
+
+                            # Pressão só aparece se a AI004 estiver ativa.
+                            # Vibração permanece sempre visível porque é um recurso
+                            # nativo do AXION e não depende das AIs analógicas.
+                            metric_columns = []
 
                             if pressure_active:
-                                quick_items.append(
+                                metric_columns.append(
                                     (
                                         "Pressão",
                                         pressure_text,
+                                        mca_text,
                                     )
                                 )
 
-                            quick_items.append(
+                            metric_columns.append(
                                 (
-                                    "Vibração máx.",
+                                    "Vibração máxima",
                                     format_value(
                                         vibration_max,
                                         3,
-                                        "mm/s",
+                                        "mm/s"
                                     ),
+                                    "RMS",
                                 )
                             )
 
-                            for canal in active_ai:
-                                if canal == "AI004":
-                                    continue
-
-                                cfg = get_channel_config(
-                                    channel_configs,
-                                    device_id,
-                                    canal,
+                            if len(metric_columns) == 1:
+                                with st.container():
+                                    title, value, delta = metric_columns[0]
+                                    st.metric(
+                                        title,
+                                        value,
+                                        delta,
+                                    )
+                            else:
+                                m1, m2 = st.columns(
+                                    len(metric_columns)
                                 )
 
-                                quick_items.append(
-                                    (
-                                        channel_display_name(
-                                            cfg,
-                                            canal,
-                                        ),
-                                        format_value(
-                                            get_channel_value(
-                                                row,
-                                                channel_configs,
-                                                device_id,
-                                                canal,
-                                                full_scale_v,
-                                            ),
-                                            int(
-                                                safe_float(
-                                                    cfg.get("decimais"),
-                                                    2,
-                                                )
-                                            ),
-                                            channel_unit(
-                                                cfg,
-                                                "",
-                                            ),
-                                        ),
+                                for col, metric_data in zip(
+                                    (m1, m2),
+                                    metric_columns
+                                ):
+                                    with col:
+                                        st.metric(
+                                            metric_data[0],
+                                            metric_data[1],
+                                            metric_data[2],
+                                        )
+
+                            active_temp_channels = [
+                                canal
+                                for canal in [
+                                    "AI005",
+                                    "AI006",
+                                    "AI007",
+                                    "AI008",
+                                ]
+                                if canal in active_ai
+                            ]
+
+                            if active_temp_channels:
+                                st.caption("Entradas analógicas")
+
+                                temp_columns = st.columns(
+                                    min(
+                                        4,
+                                        len(active_temp_channels)
                                     )
                                 )
 
-                            quick_items = quick_items[:4]
+                                for index, canal_name in enumerate(
+                                    active_temp_channels
+                                ):
+                                    label, value = configured_metric(
+                                        canal_name
+                                    )
 
-                            quick_html = "<div class='quick-grid'>"
+                                    with temp_columns[index]:
+                                        st.metric(
+                                            label,
+                                            value,
+                                        )
 
-                            for label, value in quick_items:
-                                quick_html += (
-                                    "<div class='quick-tile'>"
-                                    f"<div class='quick-label'>{label}</div>"
-                                    f"<div class='quick-value'>{value}</div>"
-                                    "</div>"
+                            st.caption("Vibração por eixo — mm/s RMS")
+
+                            v1, v2, v3 = st.columns(3)
+
+                            with v1:
+                                st.metric(
+                                    "X",
+                                    format_value(row.get("x_mm_s"), 3),
                                 )
 
-                            quick_html += "</div>"
-
-                            st.markdown(
-                                quick_html,
-                                unsafe_allow_html=True,
-                            )
-
-                            # ---------------- Vibração ----------------
-                            st.markdown(
-                                "<div class='subsection-label'>Vibração por eixo · mm/s RMS</div>",
-                                unsafe_allow_html=True,
-                            )
-
-                            axis_html = "<div class='axis-grid'>"
-
-                            for axis, column in [
-                                ("X", "x_mm_s"),
-                                ("Y", "y_mm_s"),
-                                ("Z", "z_mm_s"),
-                            ]:
-                                axis_html += (
-                                    "<div class='axis-item'>"
-                                    f"<div class='axis-name'>{axis}</div>"
-                                    f"<div class='axis-number'>{format_value(row.get(column), 3)}</div>"
-                                    "</div>"
+                            with v2:
+                                st.metric(
+                                    "Y",
+                                    format_value(row.get("y_mm_s"), 3),
                                 )
 
-                            axis_html += "</div>"
+                            with v3:
+                                st.metric(
+                                    "Z",
+                                    format_value(row.get("z_mm_s"), 3),
+                                )
 
-                            st.markdown(
-                                axis_html,
-                                unsafe_allow_html=True,
-                            )
-
-                            last = row.get("recebido_em")
-                            last_text = format_local_datetime(last)
-
-                            st.markdown(
-                                f"""
-                                <div class='device-footer'>
-                                    <div class='device-last-read'>
-                                        Última leitura · {last_text}
-                                    </div>
-                                </div>
-                                """,
-                                unsafe_allow_html=True,
+                            st.caption(
+                                f"Última leitura: {last_text}"
                             )
 
                         if st.button(
