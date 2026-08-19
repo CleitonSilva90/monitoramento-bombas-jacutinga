@@ -949,6 +949,7 @@ def build_alarms(df):
 
     configs = load_channel_configs()
     devices = load_devices()
+    global_config = load_global_config()
     for _, row in df.iterrows():
         device_id = str(
             row.get("device_id", "—")
@@ -3982,8 +3983,8 @@ elif st.session_state.view == "config":
         st.markdown("---")
         st.info(
             "Os limites de alarme das entradas analógicas são configurados "
-            "diretamente em cada AI, junto com a escala e a unidade. "
-            "Essa é a configuração utilizada pelo sistema de alarmes."
+            "diretamente em cada AI. Ao salvar a entrada, os valores mínimo "
+            "e máximo passam a ser usados imediatamente pelo sistema de alarmes."
         )
 
         st.markdown(
