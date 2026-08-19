@@ -1,7 +1,5 @@
 
 
-
-
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -638,6 +636,19 @@ def convert_channel_value(raw, config, full_scale_v=4.096):
 
     # Compatibilidade com qualquer modo desconhecido.
     return raw_to_voltage(raw, full_scale_v)
+
+
+def is_channel_active(configs, device_id, canal):
+    cfg = get_channel_config(
+        configs,
+        device_id,
+        canal
+    )
+
+    if not cfg:
+        return False
+
+    return bool(cfg.get("ativo", True))
 
 
 def get_channel_config(configs, device_id, canal):
@@ -1899,31 +1910,6 @@ if st.session_state.view == "dashboard":
                             4.096
                         )
 
-                        pressure_cfg = get_channel_config(
-                            channel_configs,
-                            device_id,
-                            "AI004"
-                        )
-
-                        pressure = get_channel_value(
-                            row,
-                            channel_configs,
-                            device_id,
-                            "AI004",
-                            full_scale_v
-                        )
-
-                        pressure_unit = channel_unit(
-                            pressure_cfg,
-                            "V"
-                        )
-
-                        pressure_mca = (
-                            bar_to_mca(pressure)
-                            if pressure_unit.lower() == "bar"
-                            else np.nan
-                        )
-
                         last = row.get("recebido_em")
                         last_text = (
                             pd.to_datetime(last).strftime("%d/%m/%Y %H:%M:%S")
@@ -1931,20 +1917,23 @@ if st.session_state.view == "dashboard":
                             else "sem leitura"
                         )
 
-                        def configured_metric(canal, fallback_unit=""):
+                        def configured_metric(canal):
                             cfg = get_channel_config(
                                 channel_configs,
                                 device_id,
                                 canal
                             )
+
                             label = channel_display_name(
                                 cfg,
                                 canal
                             )
+
                             unit = channel_unit(
                                 cfg,
-                                fallback_unit
+                                ""
                             )
+
                             value = get_channel_value(
                                 row,
                                 channel_configs,
@@ -1969,9 +1958,70 @@ if st.session_state.view == "dashboard":
                                 )
                             )
 
-                        temp6_label, temp6_value = configured_metric("AI006", "")
-                        temp7_label, temp7_value = configured_metric("AI007", "")
-                        temp8_label, temp8_value = configured_metric("AI008", "")
+                        active_ai = []
+                        for canal_num in range(1, 9):
+                            canal_name = f"AI{canal_num:03d}"
+                            if is_channel_active(
+                                channel_configs,
+                                device_id,
+                                canal_name
+                            ):
+                                active_ai.append(canal_name)
+
+                        pressure_active = "AI004" in active_ai
+
+                        pressure = np.nan
+                        pressure_unit = ""
+                        pressure_mca = np.nan
+                        pressure_text = "—"
+                        mca_text = "—"
+
+                        if pressure_active:
+                            pressure_cfg = get_channel_config(
+                                channel_configs,
+                                device_id,
+                                "AI004"
+                            )
+
+                            pressure = get_channel_value(
+                                row,
+                                channel_configs,
+                                device_id,
+                                "AI004",
+                                full_scale_v
+                            )
+
+                            pressure_unit = channel_unit(
+                                pressure_cfg,
+                                ""
+                            )
+
+                            pressure_mca = (
+                                bar_to_mca(pressure)
+                                if pressure_unit.lower() == "bar"
+                                else np.nan
+                            )
+
+                            pressure_text = format_value(
+                                pressure,
+                                int(
+                                    safe_float(
+                                        pressure_cfg.get("decimais"),
+                                        2
+                                    )
+                                ),
+                                pressure_unit
+                            )
+
+                            mca_text = (
+                                format_value(
+                                    pressure_mca,
+                                    1,
+                                    "MCA"
+                                )
+                                if np.isfinite(pressure_mca)
+                                else "—"
+                            )
 
                         vibration_values = [
                             safe_float(row.get("x_mm_s")),
@@ -2033,43 +2083,89 @@ if st.session_state.view == "dashboard":
 
                             st.divider()
 
-                            m1, m2 = st.columns(2)
+                            # Pressão só aparece se a AI004 estiver ativa.
+                            # Vibração permanece sempre visível porque é um recurso
+                            # nativo do AXION e não depende das AIs analógicas.
+                            metric_columns = []
 
-                            with m1:
-                                st.metric(
-                                    "Pressão",
-                                    pressure_text,
-                                    mca_text,
+                            if pressure_active:
+                                metric_columns.append(
+                                    (
+                                        "Pressão",
+                                        pressure_text,
+                                        mca_text,
+                                    )
                                 )
 
-                            with m2:
-                                st.metric(
+                            metric_columns.append(
+                                (
                                     "Vibração máxima",
-                                    format_value(vibration_max, 3, "mm/s"),
+                                    format_value(
+                                        vibration_max,
+                                        3,
+                                        "mm/s"
+                                    ),
                                     "RMS",
                                 )
+                            )
 
-                            st.caption("Temperaturas")
-
-                            t1, t2, t3 = st.columns(3)
-
-                            with t1:
-                                st.metric(
-                                    temp6_label,
-                                    temp6_value,
+                            if len(metric_columns) == 1:
+                                with st.container():
+                                    title, value, delta = metric_columns[0]
+                                    st.metric(
+                                        title,
+                                        value,
+                                        delta,
+                                    )
+                            else:
+                                m1, m2 = st.columns(
+                                    len(metric_columns)
                                 )
 
-                            with t2:
-                                st.metric(
-                                    temp7_label,
-                                    temp7_value,
+                                for col, metric_data in zip(
+                                    (m1, m2),
+                                    metric_columns
+                                ):
+                                    with col:
+                                        st.metric(
+                                            metric_data[0],
+                                            metric_data[1],
+                                            metric_data[2],
+                                        )
+
+                            active_temp_channels = [
+                                canal
+                                for canal in [
+                                    "AI005",
+                                    "AI006",
+                                    "AI007",
+                                    "AI008",
+                                ]
+                                if canal in active_ai
+                            ]
+
+                            if active_temp_channels:
+                                st.caption("Entradas analógicas")
+
+                                temp_columns = st.columns(
+                                    min(
+                                        4,
+                                        len(active_temp_channels)
+                                    )
                                 )
 
-                            with t3:
-                                st.metric(
-                                    temp8_label,
-                                    temp8_value,
-                                )
+                                for index, canal_name in enumerate(
+                                    active_temp_channels
+                                ):
+                                    label, value = configured_metric(
+                                        canal_name
+                                    )
+
+                                    with temp_columns[index]:
+                                        st.metric(
+                                            label,
+                                            value,
+                                        )
 
                             st.caption("Vibração por eixo — mm/s RMS")
 
