@@ -719,6 +719,72 @@ def get_default_config():
 # CONFIGURAÇÕES DO BANCO
 # ============================================================
 
+@st.cache_data(ttl=60)
+def load_locations():
+    """Carrega os locais ativos."""
+    defaults = [
+        "Jacutinga",
+        "Intermediária",
+    ]
+
+    if supabase is None:
+        return defaults
+
+    try:
+        response = (
+            supabase
+            .table("locais")
+            .select("nome, ativo, ordem")
+            .eq("ativo", True)
+            .order("ordem")
+            .order("nome")
+            .execute()
+        )
+
+        names = [
+            str(row.get("nome", "")).strip()
+            for row in (response.data or [])
+            if str(row.get("nome", "")).strip()
+        ]
+
+        return names or defaults
+
+    except Exception:
+        return defaults
+
+
+def create_location(nome, ordem=999):
+    if supabase is None:
+        return False, "Supabase indisponível."
+
+    nome = str(nome).strip()
+
+    if not nome:
+        return False, "Informe o nome do local."
+
+    try:
+        response = (
+            supabase
+            .table("locais")
+            .insert({
+                "nome": nome,
+                "ativo": True,
+                "ordem": int(ordem),
+            })
+            .select("id, nome")
+            .execute()
+        )
+
+        if not response.data:
+            return False, "O Supabase não confirmou o cadastro do local."
+
+        load_locations.clear()
+        return True, None
+
+    except Exception as exc:
+        return False, str(exc)
+
+
 @st.cache_data(ttl=30)
 def load_devices():
     """
@@ -3194,6 +3260,44 @@ elif st.session_state.view == "config":
 
     devices = load_devices()
 
+    st.markdown("### Locais")
+
+    with st.expander("➕ Cadastrar novo local", expanded=False):
+        with st.form("new_location_form"):
+            location_name = st.text_input(
+                "Nome do local",
+                placeholder="Ex.: Estação Norte",
+            )
+
+            location_order = st.number_input(
+                "Ordem de exibição",
+                min_value=1,
+                value=1,
+                step=1,
+            )
+
+            create_location_button = st.form_submit_button(
+                "Cadastrar local",
+                type="primary",
+            )
+
+        if create_location_button:
+            ok_location, location_error = create_location(
+                location_name,
+                int(location_order),
+            )
+
+            if ok_location:
+                st.success(
+                    f"Local '{location_name.strip()}' cadastrado."
+                )
+                st.rerun()
+            else:
+                st.error("Não foi possível cadastrar o local.")
+                st.code(
+                    location_error or "Erro desconhecido"
+                )
+
     st.markdown("### Equipamentos")
 
     with st.expander("➕ Cadastrar novo equipamento", expanded=False):
@@ -3217,10 +3321,25 @@ elif st.session_state.view == "config":
                 placeholder="Ex.: Bomba 02",
             )
 
-            new_device_location = st.selectbox(
+            location_options = load_locations()
+            location_choices = location_options + ["➕ Criar novo local"]
+
+            new_device_location_choice = st.selectbox(
                 "Local",
-                ["Jacutinga", "Intermediária"],
+                location_choices,
             )
+
+            if new_device_location_choice == "➕ Criar novo local":
+                new_device_location = st.text_input(
+                    "Nome do novo local",
+                    placeholder="Ex.: Estação Norte",
+                    help=(
+                        "Cadastre o novo local. Ele ficará disponível "
+                        "para os próximos equipamentos."
+                    ),
+                ).strip()
+            else:
+                new_device_location = new_device_location_choice
 
             new_device_description = st.text_input(
                 "Descrição",
@@ -3277,7 +3396,41 @@ elif st.session_state.view == "config":
                         )
                     else:
                         # ----------------------------------------
-                        # 2. Cria o dispositivo.
+                        # 2. Cria o local, quando necessário.
+                        # ----------------------------------------
+                        if new_device_location_choice == "➕ Criar novo local":
+                            if not new_device_location:
+                                st.error("Informe o nome do novo local.")
+                                st.stop()
+
+                            existing_location = (
+                                supabase
+                                .table("locais")
+                                .select("id")
+                                .eq("nome", new_device_location)
+                                .limit(1)
+                                .execute()
+                            )
+
+                            if existing_location.data:
+                                st.error(
+                                    f"O local '{new_device_location}' já está cadastrado."
+                                )
+                                st.stop()
+
+                            ok_location, location_error = create_location(
+                                new_device_location
+                            )
+
+                            if not ok_location:
+                                st.error("Não foi possível criar o local.")
+                                st.code(
+                                    location_error or "Erro desconhecido"
+                                )
+                                st.stop()
+
+                        # ----------------------------------------
+                        # 3. Cria o dispositivo.
                         # ----------------------------------------
                         device_payload = {
                             "device_id": device_id_value,
@@ -3346,6 +3499,7 @@ elif st.session_state.view == "config":
 
                         load_devices.clear()
                         load_channel_configs.clear()
+                        load_locations.clear()
                         load_telemetry.clear()
 
                         st.success(
