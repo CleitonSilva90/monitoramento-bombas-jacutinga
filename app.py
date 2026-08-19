@@ -1,6 +1,7 @@
 
 
 
+
 import math
 import io
 from datetime import datetime, timedelta, timezone
@@ -114,10 +115,18 @@ st.markdown(
         [data-testid="stVerticalBlockBorderWrapper"]>div{padding-top:.65rem!important;padding-bottom:.65rem!important}[data-testid="stVerticalBlockBorderWrapper"] h3{color:#162033!important;font-size:1.16rem!important;font-weight:900!important}[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"]{color:#798594!important}[data-testid="stVerticalBlockBorderWrapper"] hr{border-color:#e5e8ed!important;margin:.55rem 0 .7rem!important}
         [data-testid="stMetricLabel"]{color:#707c8b!important;font-size:.65rem!important;font-weight:800!important}[data-testid="stMetricValue"]{color:#172131!important;font-size:1.05rem!important;font-weight:900!important}[data-testid="stMetricDelta"]{color:#7b8594!important;font-size:.64rem!important}
         .pill-online,.pill-offline,.pill-alarm{display:inline-flex;align-items:center;padding:.3rem .58rem;border-radius:999px;font-size:.63rem;font-weight:850}.pill-online{color:#21825b;background:#e6f7ef;border:1px solid #bce7d1}.pill-offline{color:#5f6b79;background:#f1f3f5;border:1px solid #dfe4e9}.pill-alarm{color:#b43b44;background:#fdebec;border:1px solid #f2c4c7}
-        .gauge-card{width:100%;min-height:288px;background:#fff;border:1px solid #e0e5eb;border-radius:14px;padding:.55rem .55rem .35rem;box-shadow:0 3px 11px rgba(31,41,55,.035);overflow:hidden}.gauge-title{text-align:center;color:#5f6c7d;font-size:.67rem;font-weight:800;min-height:2.1em;display:flex;align-items:center;justify-content:center}.gauge-svg{display:block;width:100%;max-width:290px;margin:0 auto;height:auto;pointer-events:none;user-select:none}.gauge-value{text-align:center;margin-top:-.38rem;color:#182233;font-size:1.4rem;font-weight:900;letter-spacing:-.03em}.gauge-range{display:grid;grid-template-columns:repeat(3,1fr);color:#8993a0;font-size:.57rem;font-weight:700;padding:.08rem .25rem .12rem}.gauge-range span:nth-child(2){text-align:center}.gauge-range span:last-child{text-align:right}
+        .gauge-card{width:100%;min-height:288px;background:#fff;border:1px solid #e0e5eb;border-radius:14px;padding:.55rem .55rem .35rem;box-shadow:0 3px 11px rgba(31,41,55,.035);overflow:hidden}.gauge-title{text-align:center;color:#5f6c7d;font-size:.74rem;font-weight:850;min-height:2.1em;display:flex;align-items:center;justify-content:center}.gauge-svg{display:block;width:100%;max-width:290px;margin:0 auto;height:auto;pointer-events:none;user-select:none}.gauge-value{text-align:center;margin-top:-.38rem;color:#182233;font-size:1.52rem;font-weight:900;letter-spacing:-.03em}.gauge-range{display:grid;grid-template-columns:repeat(3,1fr);color:#465264;font-size:.74rem;font-weight:850;padding:.08rem .25rem .12rem}.gauge-range span:nth-child(2){text-align:center}.gauge-range span:last-child{text-align:right}
         div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
         [data-testid="stForm"] label,[data-testid="stForm"] label p,[data-testid="stForm"] label span{color:#4c5665!important;font-weight:750!important}[data-testid="stExpander"]{background:#fff;border:1px solid #d9dfe6;border-radius:11px}[data-testid="stExpander"] summary{color:#263242!important;font-weight:800!important}
         @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}.gauge-card{min-height:252px}.gauge-value{font-size:1.22rem}}
+        [data-testid="stPlotlyChart"]{
+            background:#ffffff!important;
+            border:1px solid #dfe4ea!important;
+            border-radius:14px!important;
+            padding:.35rem .35rem .15rem!important;
+            box-shadow:0 3px 12px rgba(31,41,55,.035);
+        }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -1028,35 +1037,148 @@ def build_alarms(df):
 def line_chart(df, columns, labels, title, yaxis):
     fig = go.Figure()
 
-    for col, label in zip(columns, labels):
-        if col in df.columns:
-            fig.add_trace(
-                go.Scatter(
-                    x=df["timestamp"],
-                    y=df[col],
-                    mode="lines",
-                    name=label,
-                    line={"width": 2},
-                    connectgaps=False,
-                )
+    palette = [
+        "#3b82f6",
+        "#f59e0b",
+        "#e85b63",
+        "#39b985",
+        "#8b5cf6",
+        "#06b6d4",
+    ]
+
+    valid_series = []
+
+    for index, (col, label) in enumerate(zip(columns, labels)):
+        if col not in df.columns:
+            continue
+
+        series = pd.to_numeric(
+            df[col],
+            errors="coerce",
+        )
+
+        if not series.notna().any():
+            continue
+
+        valid_series.append(series)
+
+        fig.add_trace(
+            go.Scatter(
+                x=df["timestamp"],
+                y=series,
+                mode="lines",
+                name=label,
+                line={
+                    "width": 2.4,
+                    "color": palette[index % len(palette)],
+                },
+                connectgaps=False,
+                hovertemplate=(
+                    "%{x|%d/%m/%Y %H:%M}<br>"
+                    "<b>%{y:.3f}</b><extra></extra>"
+                ),
+            )
+        )
+
+    y_min = None
+    y_max = None
+
+    if valid_series:
+        combined = pd.concat(
+            valid_series,
+            axis=0,
+            ignore_index=True,
+        ).dropna()
+
+        if not combined.empty:
+            data_min = float(combined.min())
+            data_max = float(combined.max())
+            span = data_max - data_min
+
+            padding = (
+                max(abs(data_max) * 0.15, 0.05)
+                if span <= 0
+                else span * 0.12
             )
 
+            y_min = data_min - padding
+            y_max = data_max + padding
+
+            if data_min >= 0:
+                y_min = min(
+                    0.0,
+                    data_min - padding,
+                )
+
     fig.update_layout(
-        title=title,
-        height=320,
-        margin=dict(l=10, r=10, t=50, b=10),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(15,23,42,.35)",
-        font={"color": "#e2e8f0"},
-        xaxis={"showgrid": True, "gridcolor": "rgba(148,163,184,.12)"},
-        yaxis={
-            "title": yaxis,
-            "showgrid": True,
-            "gridcolor": "rgba(148,163,184,.12)",
+        title={
+            "text": title,
+            "font": {
+                "size": 15,
+                "color": "#243041",
+            },
+            "x": 0,
+            "xanchor": "left",
+        },
+        height=350,
+        margin=dict(
+            l=58,
+            r=18,
+            t=52,
+            b=54,
+        ),
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#f8fafc",
+        font={
+            "color": "#374151",
+            "size": 11,
         },
         hovermode="x unified",
-        legend={"orientation": "h"},
+        legend={
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": -0.25,
+            "xanchor": "left",
+            "x": 0,
+            "font": {
+                "size": 10,
+                "color": "#4b5563",
+            },
+        },
+        xaxis={
+            "showgrid": True,
+            "gridcolor": "#e5e7eb",
+            "zeroline": False,
+            "linecolor": "#cfd6df",
+            "tickfont": {
+                "size": 10,
+                "color": "#697586",
+            },
+        },
+        yaxis={
+            "title": {
+                "text": yaxis,
+                "font": {
+                    "size": 11,
+                    "color": "#667085",
+                },
+            },
+            "showgrid": True,
+            "gridcolor": "#e5e7eb",
+            "zeroline": True,
+            "zerolinecolor": "#cfd6df",
+            "linecolor": "#cfd6df",
+            "tickfont": {
+                "size": 10,
+                "color": "#697586",
+            },
+        },
     )
+
+    if y_min is not None and y_max is not None:
+        fig.update_yaxes(
+            range=[y_min, y_max]
+        )
 
     return fig
 
@@ -2306,16 +2428,16 @@ if st.session_state.view == "dashboard":
                                                     text-align:center;
                                                 ">
                                                     <div>
-                                                        <div style="color:#697991;font-size:.58rem;font-weight:800;text-transform:uppercase;">Média</div>
-                                                        <div style="color:#dbe7f5;font-size:.72rem;font-weight:800;">{avg:.2f} {item["unit"]}</div>
+                                                        <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Média</div>
+                                                        <div style="color:#263241;font-size:.86rem;font-weight:900;">{avg:.2f} {item["unit"]}</div>
                                                     </div>
                                                     <div>
-                                                        <div style="color:#697991;font-size:.58rem;font-weight:800;text-transform:uppercase;">Mín.</div>
-                                                        <div style="color:#dbe7f5;font-size:.72rem;font-weight:800;">{minimum:.2f} {item["unit"]}</div>
+                                                        <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Mín.</div>
+                                                        <div style="color:#263241;font-size:.86rem;font-weight:900;">{minimum:.2f} {item["unit"]}</div>
                                                     </div>
                                                     <div>
-                                                        <div style="color:#697991;font-size:.58rem;font-weight:800;text-transform:uppercase;">Máx.</div>
-                                                        <div style="color:#dbe7f5;font-size:.72rem;font-weight:800;">{maximum:.2f} {item["unit"]}</div>
+                                                        <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Máx.</div>
+                                                        <div style="color:#263241;font-size:.86rem;font-weight:900;">{maximum:.2f} {item["unit"]}</div>
                                                     </div>
                                                 </div>
                                                 """,
