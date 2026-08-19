@@ -1,5 +1,6 @@
 
 
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -772,10 +773,8 @@ def load_devices():
 @st.cache_data(ttl=30)
 def load_channel_configs():
     """
-    Carrega a configuração atual de public.configuracao_analogica.
-
-    Normaliza o nome da coluna para manter compatibilidade com partes
-    antigas do dashboard.
+    Carrega public.configuracao_analogica.
+    Chave usada pela interface: (device_id, "AI004").
     """
     if supabase is None:
         return {}
@@ -785,45 +784,56 @@ def load_channel_configs():
             supabase
             .table("configuracao_analogica")
             .select("*")
+            .order("device_id")
+            .order("canal")
             .execute()
         )
 
         configs = {}
 
         for row in response.data or []:
-            canal_num = row.get("canal")
+            device_id = str(row.get("device_id", "")).strip()
 
             try:
-                canal = f"AI{int(canal_num):03d}"
+                canal_number = int(row.get("canal"))
             except (TypeError, ValueError):
-                canal = str(
-                    row.get("canal", "")
-                ).upper()
+                continue
 
+            if canal_number < 1 or canal_number > 16:
+                continue
+
+            canal = channel_name_from_number(canal_number)
             normalized = dict(row)
 
+            normalized["canal"] = canal
             normalized["nome_exibicao"] = (
                 row.get("nome_exibicao")
                 or row.get("nome")
                 or canal
             )
-
-            normalized["unidade"] = (
-                row.get("unidade")
-                or ""
+            normalized["tipo_entrada"] = (
+                row.get("tipo_entrada")
+                or (
+                    "4–20 mA"
+                    if str(row.get("modo", "")).lower() == "linear_4_20ma"
+                    else "0–3 V"
+                )
             )
+            normalized["shunt_150r"] = bool(
+                row.get(
+                    "shunt_150r",
+                    str(row.get("modo", "")).lower() == "linear_4_20ma"
+                )
+            )
+            normalized["unidade"] = row.get("unidade") or "Sem unidade"
 
-            configs[(
-                str(row.get("device_id", "")),
-                canal
-            )] = normalized
+            configs[(device_id, canal)] = normalized
 
         return configs
 
     except Exception as exc:
-        st.error(
-            f"Erro ao carregar configuração das entradas: {exc}"
-        )
+        st.error("Erro ao carregar configurações das entradas.")
+        st.exception(exc)
         return {}
 
 
@@ -1449,37 +1459,73 @@ def health_color(score):
 # ATUALIZAÇÃO DE CONFIGURAÇÃO
 # ============================================================
 
+def normalize_channel_number(canal):
+    """Converte AI001...AI016 ou 1...16 para o número do canal."""
+    text = str(canal).strip().upper()
+    if text.startswith("AI"):
+        text = text[2:]
+    number = int(text)
+    if number < 1 or number > 16:
+        raise ValueError(f"Canal inválido: {canal}")
+    return number
+
+
+def channel_name_from_number(number):
+    return f"AI{int(number):03d}"
+
+
 def update_channel(device_id, canal, payload):
+    """
+    Salva a configuração da AI.
+    A interface usa AI004; o banco usa canal=4.
+    """
     if supabase is None:
         return False, "Supabase indisponível."
 
     try:
-        # A interface usa AI001 ... AI016.
-        # O banco armazena somente o número do canal (1 ... 16).
-        canal_text = str(canal).strip().upper()
+        device_id = str(device_id).strip()
+        canal_db = normalize_channel_number(canal)
 
-        if canal_text.startswith("AI"):
-            canal_db = int(canal_text[2:])
-        else:
-            canal_db = int(canal_text)
+        data = {
+            "device_id": device_id,
+            "canal": canal_db,
+            **payload,
+        }
 
-        if canal_db < 1 or canal_db > 16:
-            return False, f"Canal inválido: {canal}"
-
-        (
+        response = (
             supabase
             .table("configuracao_analogica")
-            .update(payload)
-            .eq("device_id", device_id)
-            .eq("canal", canal_db)
+            .upsert(
+                data,
+                on_conflict="device_id,canal",
+            )
+            .select("*")
+            .single()
             .execute()
         )
+
+        saved = response.data
+
+        if not saved:
+            return False, (
+                f"Supabase não retornou a configuração salva "
+                f"para {device_id}/{channel_name_from_number(canal_db)}."
+            )
+
+        if (
+            str(saved.get("device_id")).strip() != device_id
+            or int(saved.get("canal")) != canal_db
+        ):
+            return False, (
+                "A linha retornada pelo Supabase não corresponde "
+                "ao canal solicitado."
+            )
 
         load_channel_configs.clear()
         return True, None
 
-    except ValueError:
-        return False, f"Canal inválido: {canal}"
+    except ValueError as exc:
+        return False, str(exc)
 
     except Exception as exc:
         return False, str(exc)
@@ -1490,15 +1536,24 @@ def update_device(device_id, payload):
         return False, "Supabase indisponível."
 
     try:
-        (
+        response = (
             supabase
             .table("dispositivos")
             .update(payload)
-            .eq("device_id", device_id)
+            .eq("device_id", str(device_id).strip())
+            .select("*")
+            .single()
             .execute()
         )
 
+        if not response.data:
+            return False, (
+                f"Dispositivo {device_id} não foi localizado "
+                "para atualização."
+            )
+
         load_devices.clear()
+        load_telemetry.clear()
         return True, None
 
     except Exception as exc:
