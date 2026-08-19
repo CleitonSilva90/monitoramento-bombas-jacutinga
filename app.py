@@ -2568,12 +2568,19 @@ if st.session_state.view == "dashboard":
                                         "alarme_max"
                                     )
                                 ),
+                                "exibir_gauge": bool(
+                                    cfg.get("exibir_gauge", True)
+                                ),
                             })
 
-                        # Todas as entradas analógicas ativas viram gauges.
+                        # Entradas ativas com 'Exibir gauge no dashboard' habilitado viram gauges.
                         # A quantidade não é limitada: quando uma nova AI é
                         # ativada, ela automaticamente ganha seu próprio gauge.
-                        active_gauges = candidates
+                        active_gauges = [
+                            item
+                            for item in candidates
+                            if bool(item.get("exibir_gauge", True))
+                        ]
 
                         # ----------------------------
                         # Cabeçalho do equipamento
@@ -3848,6 +3855,7 @@ elif st.session_state.view == "config":
                                 "shunt_ohms": 150.0,
                                 "decimais": 2,
                                 "ativo": False,
+                                "exibir_gauge": True,
                                 "alarme_min": None,
                                 "alarme_max": None,
                                 "tipo_entrada": "0–3 V",
@@ -4040,6 +4048,10 @@ elif st.session_state.view == "config":
                 cfg.get("ativo", True)
             )
 
+            exibir_gauge_atual = bool(
+                cfg.get("exibir_gauge", True)
+            )
+
             alarme_min_atual = cfg.get("alarme_min")
             alarme_max_atual = cfg.get("alarme_max")
 
@@ -4113,6 +4125,16 @@ elif st.session_state.view == "config":
                     ativo = st.checkbox(
                         "Entrada ativa",
                         value=ativo_atual,
+                    )
+
+                    exibir_gauge = st.checkbox(
+                        "Exibir gauge no dashboard",
+                        value=exibir_gauge_atual,
+                        help=(
+                            "Quando ativado, esta entrada aparece como "
+                            "mostrador analógico no Dashboard. Desative "
+                            "para manter a leitura disponível sem criar gauge."
+                        ),
                     )
 
                     alarme_min = st.number_input(
@@ -4203,6 +4225,7 @@ elif st.session_state.view == "config":
                         "shunt_ohms": 150.0,
                         "decimais": 2,
                         "ativo": ativo,
+                        "exibir_gauge": exibir_gauge,
                         "alarme_min": float(
                             alarme_min
                         ),
