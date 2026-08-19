@@ -1,5 +1,7 @@
 
 
+
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -94,15 +96,15 @@ st.markdown(
     """
     <style>
         :root {
-            --bg: #f4f7fb;
-            --card: #ffffff;
-            --card2: #eef3f8;
-            --border: #cbd5e1;
-            --border-strong: #94a3b8;
-            --text: #0f172a;
-            --text-strong: #020617;
-            --muted: #475569;
-            --muted-strong: #334155;
+            --bg: #0b1020;
+            --card: #1d2740;
+            --card2: #162038;
+            --border: #475569;
+            --border-strong: #64748b;
+            --text: #f8fafc;
+            --text-strong: #ffffff;
+            --muted: #d1d5db;
+            --muted-strong: #e2e8f0;
             --blue: #1d4ed8;
             --blue-dark: #1e3a8a;
             --green: #047857;
@@ -120,7 +122,8 @@ st.markdown(
 
         .stApp {
             background:
-                linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+                radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 35%),
+                linear-gradient(135deg, #0b1020 0%, #070b14 100%);
             color: var(--text);
         }
 
@@ -147,24 +150,24 @@ st.markdown(
             width: 100%;
             min-height: 46px;
             border-radius: 10px;
-            border: 1px solid #94a3b8;
-            background: #ffffff;
-            color: #0f172a;
+            border: 1px solid #64748b;
+            background: #1e293b;
+            color: #f8fafc;
             font-weight: 750;
             font-size: 0.95rem;
             box-shadow: 0 2px 7px rgba(15,23,42,.08);
         }
 
         div.stButton > button:hover {
-            border-color: #2563eb;
-            background: #eff6ff;
-            color: #1e3a8a;
+            border-color: #60a5fa;
+            background: #263650;
+            color: #ffffff;
         }
 
         div.stButton > button:focus {
-            border-color: #2563eb;
-            box-shadow: 0 0 0 3px rgba(37,99,235,.18);
-            color: #0f172a;
+            border-color: #60a5fa;
+            box-shadow: 0 0 0 3px rgba(59,130,246,.25);
+            color: #ffffff;
         }
 
         div.stButton > button[kind="primary"] {
@@ -187,8 +190,8 @@ st.markdown(
         /* ---------------- Header / cards ---------------- */
 
         .top-card {
-            background: #ffffff;
-            border: 1px solid #cbd5e1;
+            background: linear-gradient(135deg, #1d2740 0%, #151d31 100%);
+            border: 1px solid #475569;
             border-radius: 18px;
             padding: 1.25rem 1.5rem;
             margin-bottom: 1rem;
@@ -196,8 +199,8 @@ st.markdown(
         }
 
         .device-card {
-            background: #ffffff;
-            border: 1px solid #cbd5e1;
+            background: linear-gradient(135deg, #1e293b 0%, #172033 100%);
+            border: 1px solid #475569;
             border-radius: 16px;
             padding: 1rem;
             min-height: 360px;
@@ -210,15 +213,15 @@ st.markdown(
         }
 
         .metric {
-            background: #f8fafc;
-            border: 1px solid #dbe3ec;
+            background: rgba(15,23,42,.52);
+            border: 1px solid rgba(148,163,184,.24);
             border-radius: 10px;
             padding: .7rem;
             min-height: 74px;
         }
 
         .metric-title {
-            color: #334155;
+            color: #e2e8f0;
             font-size: .74rem;
             text-transform: uppercase;
             letter-spacing: .35px;
@@ -226,7 +229,7 @@ st.markdown(
         }
 
         .metric-value {
-            color: #020617;
+            color: #ffffff;
             font-size: 1.2rem;
             font-weight: 850;
             margin-top: .25rem;
@@ -237,12 +240,12 @@ st.markdown(
             margin-bottom: .6rem;
             font-size: 1.1rem;
             font-weight: 850;
-            color: #0f172a;
+            color: #f8fafc;
         }
 
         .kpi {
-            background: #ffffff;
-            border: 1px solid #cbd5e1;
+            background: #1e293b;
+            border: 1px solid #475569;
             border-radius: 14px;
             padding: 1rem;
             text-align: center;
@@ -253,17 +256,17 @@ st.markdown(
             font-size: 1.95rem;
             font-weight: 900;
             line-height: 1.1;
-            color: #020617;
+            color: #ffffff;
         }
 
         .muted {
-            color: #475569 !important;
+            color: #cbd5e1 !important;
             font-size: .84rem;
             font-weight: 500;
         }
 
         .small {
-            color: #475569 !important;
+            color: #cbd5e1 !important;
             font-size: .76rem;
             font-weight: 700;
         }
@@ -274,9 +277,9 @@ st.markdown(
             display: inline-block;
             padding: .32rem .62rem;
             border-radius: 999px;
-            background: #d1fae5;
-            color: #047857;
-            border: 1px solid #86efac;
+            background: rgba(16,185,129,.16);
+            color: #34d399;
+            border: 1px solid rgba(16,185,129,.35);
             font-weight: 800;
             font-size: .74rem;
         }
@@ -285,9 +288,9 @@ st.markdown(
             display: inline-block;
             padding: .32rem .62rem;
             border-radius: 999px;
-            background: #e2e8f0;
-            color: #334155;
-            border: 1px solid #cbd5e1;
+            background: rgba(100,116,139,.16);
+            color: #e2e8f0;
+            border: 1px solid rgba(148,163,184,.32);
             font-weight: 800;
             font-size: .74rem;
         }
@@ -296,9 +299,9 @@ st.markdown(
             display: inline-block;
             padding: .32rem .62rem;
             border-radius: 999px;
-            background: #fee2e2;
-            color: #b91c1c;
-            border: 1px solid #fca5a5;
+            background: rgba(239,68,68,.16);
+            color: #f87171;
+            border: 1px solid rgba(239,68,68,.35);
             font-weight: 850;
             font-size: .74rem;
         }
@@ -310,17 +313,17 @@ st.markdown(
         }
 
         [data-testid="stMetricLabel"] {
-            color: #334155 !important;
-            font-weight: 700 !important;
+            color: #e2e8f0 !important;
+            font-weight: 750 !important;
         }
 
         [data-testid="stMetricValue"] {
-            color: #020617 !important;
+            color: #ffffff !important;
             font-weight: 900 !important;
         }
 
         [data-testid="stMetricDelta"] {
-            color: #475569 !important;
+            color: #cbd5e1 !important;
             font-weight: 700 !important;
         }
 
@@ -328,24 +331,24 @@ st.markdown(
         div[data-baseweb="input"] > div,
         textarea,
         input {
-            background: #ffffff !important;
-            color: #0f172a !important;
-            border-color: #94a3b8 !important;
+            background: #162038 !important;
+            color: #f8fafc !important;
+            border-color: #64748b !important;
         }
 
         div[data-baseweb="select"] span,
         div[data-baseweb="select"] input {
-            color: #0f172a !important;
+            color: #f8fafc !important;
         }
 
         [data-testid="stExpander"] {
-            border: 1px solid #cbd5e1;
+            border: 1px solid #475569;
             border-radius: 12px;
-            background: #ffffff;
+            background: #162038;
         }
 
         [data-testid="stExpander"] summary {
-            color: #0f172a !important;
+            color: #f8fafc !important;
             font-weight: 750 !important;
         }
 
