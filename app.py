@@ -115,10 +115,16 @@ st.markdown(
         [data-testid="stVerticalBlockBorderWrapper"]>div{padding-top:.65rem!important;padding-bottom:.65rem!important}[data-testid="stVerticalBlockBorderWrapper"] h3{color:#162033!important;font-size:1.16rem!important;font-weight:900!important}[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"]{color:#798594!important}[data-testid="stVerticalBlockBorderWrapper"] hr{border-color:#e5e8ed!important;margin:.55rem 0 .7rem!important}
         [data-testid="stMetricLabel"]{color:#707c8b!important;font-size:.65rem!important;font-weight:800!important}[data-testid="stMetricValue"]{color:#172131!important;font-size:1.05rem!important;font-weight:900!important}[data-testid="stMetricDelta"]{color:#7b8594!important;font-size:.64rem!important}
         .pill-online,.pill-offline,.pill-alarm{display:inline-flex;align-items:center;padding:.3rem .58rem;border-radius:999px;font-size:.63rem;font-weight:850}.pill-online{color:#21825b;background:#e6f7ef;border:1px solid #bce7d1}.pill-offline{color:#5f6b79;background:#f1f3f5;border:1px solid #dfe4e9}.pill-alarm{color:#b43b44;background:#fdebec;border:1px solid #f2c4c7}
-        .gauge-card{width:100%;min-height:214px;background:#fff;border:1px solid #e0e5eb;border-radius:14px;padding:.55rem .55rem .35rem;box-shadow:0 3px 11px rgba(31,41,55,.035);overflow:hidden}.gauge-title{text-align:center;color:#455264;font-size:.78rem;font-weight:900;min-height:1.8em;display:flex;align-items:center;justify-content:center}.gauge-svg{display:block;width:100%;max-width:235px;margin:0 auto;height:auto;pointer-events:none;user-select:none}.gauge-value{text-align:center;margin-top:-.38rem;color:#182233;font-size:1.24rem;font-weight:900;letter-spacing:-.03em}.gauge-range{display:grid;grid-template-columns:repeat(3,1fr);color:#465264;font-size:.62rem;font-weight:850;padding:.08rem .25rem .12rem}.gauge-range span:nth-child(2){text-align:center}.gauge-range span:last-child{text-align:right}
+        .compact-gauge{width:100%;background:#fff;border:1px solid #e0e5eb;border-radius:12px;padding:.62rem .72rem .50rem;box-shadow:0 2px 9px rgba(31,41,55,.035)}
+        .compact-gauge-head{display:flex;align-items:baseline;justify-content:space-between;gap:.55rem}
+        .compact-gauge-title{color:#4a586a;font-size:.72rem;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .compact-gauge-value{color:#172132;font-size:1.04rem;font-weight:900;white-space:nowrap}
+        .compact-gauge-track{height:9px;margin-top:.46rem;border-radius:999px;background:#e7ebef;overflow:hidden}
+        .compact-gauge-fill{height:100%;border-radius:999px;min-width:2%}
+        .compact-gauge-range{display:flex;justify-content:space-between;margin-top:.24rem;color:#657183;font-size:.58rem;font-weight:800}
         div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
         [data-testid="stForm"] label,[data-testid="stForm"] label p,[data-testid="stForm"] label span{color:#4c5665!important;font-weight:750!important}[data-testid="stExpander"]{background:#fff;border:1px solid #d9dfe6;border-radius:11px}[data-testid="stExpander"] summary{color:#263242!important;font-weight:800!important}
-        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}.gauge-card{min-height:205px}.gauge-value{font-size:1.15rem}}
+        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}}
         [data-testid="stPlotlyChart"]{
             background:#ffffff!important;
             border:1px solid #dfe4ea!important;
@@ -2236,31 +2242,50 @@ channel_configs = load_channel_configs()
 
 
 
-def analog_gauge_html(title, value, unit, scale_min, scale_max, alarm_min=None, alarm_max=None):
+def analog_gauge_html(
+    title,
+    value,
+    unit,
+    scale_min,
+    scale_max,
+    alarm_min=None,
+    alarm_max=None,
+):
     raw_value = safe_float(value)
     smin = safe_float(scale_min, 0)
     smax = safe_float(scale_max, 100)
-    if not np.isfinite(smin): smin = 0.0
-    if not np.isfinite(smax) or smax <= smin: smax = smin + 1.0
-    if not np.isfinite(raw_value): raw_value = smin
-    pct = max(0.0, min(1.0, (raw_value-smin)/(smax-smin)))
-    alarm_low = safe_float(alarm_min); alarm_high = safe_float(alarm_max)
+
+    if not np.isfinite(smin):
+        smin = 0.0
+    if not np.isfinite(smax) or smax <= smin:
+        smax = smin + 1.0
+    if not np.isfinite(raw_value):
+        raw_value = smin
+
+    pct = max(0.0, min(1.0, (raw_value - smin) / (smax - smin)))
+
+    alarm_low = safe_float(alarm_min)
+    alarm_high = safe_float(alarm_max)
     critical = ((np.isfinite(alarm_low) and raw_value < alarm_low) or
                 (np.isfinite(alarm_high) and raw_value > alarm_high))
+
     color = "#e45b63" if critical else "#39b985"
-    radius=82; circumference=math.pi*radius; dash=circumference*pct; gap=circumference-dash
-    mid=(smin+smax)/2
-    return f"""<div class="gauge-card">
-      <div class="gauge-title">{title}</div>
-      <svg class="gauge-svg" viewBox="0 0 240 155" aria-label="{title}">
-        <path d="M 38 118 A 82 82 0 0 1 202 118" fill="none" stroke="#dfe4ea" stroke-width="18" stroke-linecap="round"/>
-        <path d="M 38 118 A 82 82 0 0 1 202 118" fill="none" stroke="{color}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.2f} {gap:.2f}" pathLength="{circumference:.2f}"/>
-      </svg>
-      <div class="gauge-value">{format_value(raw_value, 2, unit)}</div>
-      <div class="gauge-range"><span>{format_value(smin,0,"")}</span><span>{format_value(mid,0,"")}</span><span>{format_value(smax,0,"")}</span></div>
-    </div>"""
 
-
+    return f'''
+    <div class="compact-gauge">
+        <div class="compact-gauge-head">
+            <div class="compact-gauge-title">{title}</div>
+            <div class="compact-gauge-value">{format_value(raw_value, 2, unit)}</div>
+        </div>
+        <div class="compact-gauge-track">
+            <div class="compact-gauge-fill" style="width:{pct * 100:.1f}%;background:{color};"></div>
+        </div>
+        <div class="compact-gauge-range">
+            <span>{format_value(smin, 0, "")}</span>
+            <span>{format_value(smax, 0, "")}</span>
+        </div>
+    </div>
+    '''
 
 def render_alarm_card(
     grandeza,
