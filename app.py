@@ -1593,6 +1593,386 @@ def update_device(device_id, payload):
         return False, str(exc)
 
 
+
+def build_report_statistics(
+    device_id,
+    history,
+):
+    """
+    Constrói estatísticas de engenharia para o período selecionado.
+
+    Retorna uma lista de dicionários com:
+      nome, unidade, media, minimo, maximo, ultimo, leituras
+    """
+    if history.empty:
+        return []
+
+    configs = load_channel_configs()
+    devices = load_devices()
+
+    full_scale_v = 4.096
+
+    if not devices.empty:
+        match = devices[
+            devices["device_id"].astype(str)
+            == str(device_id)
+        ]
+        if not match.empty:
+            full_scale_v = safe_float(
+                match.iloc[0].get("adc_full_scale_v"),
+                4.096
+            )
+
+    stats = []
+
+    # Entradas analógicas ativas.
+    for canal_num in range(1, 17):
+        canal = f"AI{canal_num:03d}"
+
+        if not is_channel_active(
+            configs,
+            device_id,
+            canal
+        ):
+            continue
+
+        cfg = get_channel_config(
+            configs,
+            device_id,
+            canal
+        )
+
+        values = history.apply(
+            lambda row: get_channel_value(
+                row,
+                configs,
+                device_id,
+                canal,
+                full_scale_v
+            ),
+            axis=1,
+        )
+
+        values = pd.to_numeric(
+            values,
+            errors="coerce"
+        ).dropna()
+
+        if values.empty:
+            continue
+
+        nome = channel_display_name(
+            cfg,
+            canal
+        )
+
+        unidade = channel_unit(
+            cfg,
+            ""
+        )
+
+        stats.append({
+            "categoria": "Entrada analógica",
+            "nome": nome,
+            "canal": canal,
+            "unidade": unidade,
+            "media": float(values.mean()),
+            "minimo": float(values.min()),
+            "maximo": float(values.max()),
+            "ultimo": float(values.iloc[-1]),
+            "leituras": int(values.count()),
+        })
+
+    # Vibração por eixo.
+    for axis in ["x", "y", "z"]:
+        column = f"{axis}_mm_s"
+
+        if column not in history.columns:
+            continue
+
+        values = pd.to_numeric(
+            history[column],
+            errors="coerce"
+        ).dropna()
+
+        if values.empty:
+            continue
+
+        stats.append({
+            "categoria": "Vibracao",
+            "nome": f"Vibracao {axis.upper()}",
+            "canal": axis.upper(),
+            "unidade": "mm/s RMS",
+            "media": float(values.mean()),
+            "minimo": float(values.min()),
+            "maximo": float(values.max()),
+            "ultimo": float(values.iloc[-1]),
+            "leituras": int(values.count()),
+        })
+
+    # RMS de aceleracao por eixo.
+    for axis in ["x", "y", "z"]:
+        column = f"{axis}_rms"
+
+        if column not in history.columns:
+            continue
+
+        values = pd.to_numeric(
+            history[column],
+            errors="coerce"
+        ).dropna()
+
+        if values.empty:
+            continue
+
+        stats.append({
+            "categoria": "Aceleracao RMS",
+            "nome": f"RMS {axis.upper()}",
+            "canal": axis.upper(),
+            "unidade": "g RMS",
+            "media": float(values.mean()),
+            "minimo": float(values.min()),
+            "maximo": float(values.max()),
+            "ultimo": float(values.iloc[-1]),
+            "leituras": int(values.count()),
+        })
+
+    return stats
+
+
+def generate_service_report_pdf(
+    device_id,
+    row,
+    history,
+    period_label,
+):
+    """
+    Gera o relatório de serviço do ativo em PDF.
+    O banco permanece em UTC; datas do relatório são exibidas em
+    America/Sao_Paulo.
+    """
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=36,
+        leftMargin=36,
+        topMargin=36,
+        bottomMargin=36,
+        title=f"Relatorio de Servico AXION - {device_id}",
+        author="AXION",
+    )
+
+    styles = getSampleStyleSheet()
+    story = []
+
+    device_name = str(
+        row.get("nome", device_id)
+    )
+    local = str(
+        row.get("local", "Sem local")
+    )
+    status = str(
+        row.get("status", "Offline")
+    )
+
+    received = history["timestamp"] if (
+        not history.empty
+        and "timestamp" in history.columns
+    ) else pd.Series(dtype="datetime64[ns, UTC]")
+
+    if not history.empty and "recebido_em" in history.columns:
+        start_ts = history["recebido_em"].min()
+        end_ts = history["recebido_em"].max()
+        start_text = format_local_datetime(
+            start_ts,
+            "%d/%m/%Y %H:%M"
+        )
+        end_text = format_local_datetime(
+            end_ts,
+            "%d/%m/%Y %H:%M"
+        )
+    else:
+        start_text = "Sem dados"
+        end_text = "Sem dados"
+
+    story.append(
+        Paragraph(
+            "RELATORIO DE SERVICO - AXION",
+            styles["Title"],
+        )
+    )
+
+    story.append(
+        Paragraph(
+            f"<b>Ativo:</b> {device_name}<br/>"
+            f"<b>Device ID:</b> {device_id}<br/>"
+            f"<b>Local:</b> {local}<br/>"
+            f"<b>Status no momento do relatorio:</b> {status}<br/>"
+            f"<b>Periodo:</b> {period_label}<br/>"
+            f"<b>Inicio dos dados:</b> {start_text}<br/>"
+            f"<b>Fim dos dados:</b> {end_text}<br/>"
+            f"<b>Total de registros analisados:</b> {len(history)}",
+            styles["BodyText"],
+        )
+    )
+
+    story.append(
+        Spacer(1, 16)
+    )
+
+    if history.empty:
+        story.append(
+            Paragraph(
+                "Nao existem dados para o periodo selecionado.",
+                styles["BodyText"],
+            )
+        )
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    stats = build_report_statistics(
+        device_id,
+        history,
+    )
+
+    if not stats:
+        story.append(
+            Paragraph(
+                "Nao existem entradas ativas com dados validos "
+                "para este periodo.",
+                styles["BodyText"],
+            )
+        )
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+
+    story.append(
+        Paragraph(
+            "Resumo do comportamento do ativo",
+            styles["Heading2"],
+        )
+    )
+
+    summary_rows = [
+        [
+            "Categoria",
+            "Grandeza",
+            "Unidade",
+            "Media",
+            "Minimo",
+            "Maximo",
+            "Ultimo",
+        ]
+    ]
+
+    for item in stats:
+        summary_rows.append([
+            item["categoria"],
+            item["nome"],
+            item["unidade"] or "-",
+            f'{item["media"]:.3f}',
+            f'{item["minimo"]:.3f}',
+            f'{item["maximo"]:.3f}',
+            f'{item["ultimo"]:.3f}',
+        ])
+
+    summary_table = Table(
+        summary_rows,
+        repeatRows=1,
+        colWidths=[
+            82, 115, 62, 62, 62, 62, 62
+        ],
+    )
+
+    summary_table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e293b")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [
+                colors.white,
+                colors.HexColor("#f8fafc"),
+            ]),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (3, 1), (-1, -1), "RIGHT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ])
+    )
+
+    story.append(summary_table)
+    story.append(
+        Spacer(1, 14)
+    )
+
+    # Qualitative interpretation based only on the measured values.
+    story.append(
+        Paragraph(
+            "Comportamento no periodo",
+            styles["Heading2"],
+        )
+    )
+
+    highest_variation = None
+
+    for item in stats:
+        span = item["maximo"] - item["minimo"]
+
+        if highest_variation is None or span > highest_variation[0]:
+            highest_variation = (
+                span,
+                item,
+            )
+
+    if highest_variation:
+        item = highest_variation[1]
+
+        story.append(
+            Paragraph(
+                f"A maior faixa de variacao observada foi em "
+                f"<b>{item['nome']}</b>, com {item['minimo']:.3f} "
+                f"a {item['maximo']:.3f} {item['unidade']}.",
+                styles["BodyText"],
+            )
+        )
+
+    story.append(
+        Spacer(1, 8)
+    )
+
+    story.append(
+        Paragraph(
+            "Observacao: este relatorio apresenta estatisticas "
+            "calculadas a partir das leituras armazenadas no Supabase "
+            "no periodo selecionado. Valores de minimo, maximo e media "
+            "nao representam diagnostico automatico de falha.",
+            styles["BodyText"],
+        )
+    )
+
+    story.append(
+        Spacer(1, 14)
+    )
+
+    story.append(
+        Paragraph(
+            f"Gerado em {format_local_datetime(pd.Timestamp.now(tz='UTC'))}",
+            styles["BodyText"],
+        )
+    )
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
 # ============================================================
 # RELATÓRIO PDF
 # ============================================================
@@ -1727,7 +2107,7 @@ def generate_pdf(device_id, row, history):
 # NAVEGAÇÃO
 # ============================================================
 
-top = st.columns([2, 1, 1, 1])
+top = st.columns([2, 1, 1, 1, 1])
 
 with top[0]:
     st.markdown(
@@ -1761,6 +2141,15 @@ with top[2]:
         st.rerun()
 
 with top[3]:
+    if st.button(
+        "📄  Relatórios",
+        use_container_width=True,
+        type="primary" if st.session_state.view == "reports" else "secondary",
+    ):
+        st.session_state.view = "reports"
+        st.rerun()
+
+with top[4]:
     if st.button(
         "⚙️  Configuração",
         use_container_width=True,
@@ -2566,6 +2955,233 @@ elif st.session_state.view == "details":
                 f"{format_local_datetime(last)}"
             )
 
+
+# ============================================================
+# RELATÓRIOS
+# ============================================================
+
+elif st.session_state.view == "reports":
+
+    st.markdown("## Relatorios de servico")
+
+    st.caption(
+        "Selecione o ativo e o periodo para analisar o comportamento "
+        "das leituras e exportar um relatorio em PDF."
+    )
+
+    report_devices = (
+        device_rows["device_id"].astype(str).tolist()
+        if not device_rows.empty
+        else []
+    )
+
+    if not report_devices:
+        st.info(
+            "Nenhum dispositivo disponível para gerar relatório."
+        )
+    else:
+        selected_report_device = st.selectbox(
+            "Ativo",
+            report_devices,
+            index=(
+                report_devices.index(
+                    st.session_state.device_id
+                )
+                if st.session_state.device_id
+                in report_devices
+                else 0
+            ),
+        )
+
+        period_label = st.selectbox(
+            "Periodo de analise",
+            [
+                "24 horas",
+                "3 dias",
+                "7 dias",
+                "30 dias",
+            ],
+            index=2,
+        )
+
+        period_days = {
+            "24 horas": 1,
+            "3 dias": 3,
+            "7 dias": 7,
+            "30 dias": 30,
+        }[period_label]
+
+        report_history = load_history(
+            selected_report_device,
+            period_days,
+        )
+
+        selected_rows = device_rows[
+            device_rows["device_id"].astype(str)
+            == selected_report_device
+        ]
+
+        if selected_rows.empty:
+            st.warning(
+                "Dispositivo sem dados atuais."
+            )
+        else:
+            report_row = selected_rows.iloc[0]
+
+            st.markdown(
+                f"### {report_row.get('nome', selected_report_device)}"
+            )
+
+            if report_history.empty:
+                st.warning(
+                    "Nao existem leituras no periodo selecionado."
+                )
+            else:
+                report_stats = build_report_statistics(
+                    selected_report_device,
+                    report_history,
+                )
+
+                if report_stats:
+                    stats_df = pd.DataFrame([
+                        {
+                            "Categoria": item["categoria"],
+                            "Grandeza": item["nome"],
+                            "Unidade": item["unidade"] or "-",
+                            "Media": item["media"],
+                            "Minimo": item["minimo"],
+                            "Maximo": item["maximo"],
+                            "Ultimo": item["ultimo"],
+                            "Leituras": item["leituras"],
+                        }
+                        for item in report_stats
+                    ])
+
+                    st.dataframe(
+                        stats_df,
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.info(
+                        "Nao existem canais ativos com dados validos "
+                        "no periodo selecionado."
+                    )
+
+                c1, c2, c3 = st.columns(3)
+
+                with c1:
+                    st.metric(
+                        "Leituras analisadas",
+                        f"{len(report_history):,}".replace(",", "."),
+                    )
+
+                with c2:
+                    first_time = report_history["recebido_em"].min()
+                    st.metric(
+                        "Inicio",
+                        format_local_datetime(
+                            first_time,
+                            "%d/%m/%Y %H:%M",
+                        ),
+                    )
+
+                with c3:
+                    last_time = report_history["recebido_em"].max()
+                    st.metric(
+                        "Fim",
+                        format_local_datetime(
+                            last_time,
+                            "%d/%m/%Y %H:%M",
+                        ),
+                    )
+
+                st.markdown(
+                    "### Tendencia das principais leituras"
+                )
+
+                if "vibra" in report_history.columns:
+                    st.plotly_chart(
+                        line_chart(
+                            report_history,
+                            ["vibra"],
+                            ["Vibracao maxima"],
+                            "Vibracao maxima no periodo",
+                            "mm/s RMS",
+                        ),
+                        use_container_width=True,
+                    )
+
+                active_configs = []
+
+                for canal_num in range(1, 17):
+                    canal = f"AI{canal_num:03d}"
+
+                    if not is_channel_active(
+                        channel_configs,
+                        selected_report_device,
+                        canal
+                    ):
+                        continue
+
+                    cfg = get_channel_config(
+                        channel_configs,
+                        selected_report_device,
+                        canal
+                    )
+
+                    active_configs.append(
+                        (
+                            canal,
+                            channel_display_name(
+                                cfg,
+                                canal
+                            ),
+                            channel_unit(
+                                cfg,
+                                ""
+                            ),
+                        )
+                    )
+
+                if active_configs:
+                    for canal, label, unit in active_configs:
+                        if canal not in report_history.columns:
+                            continue
+
+                        st.plotly_chart(
+                            line_chart(
+                                report_history,
+                                [canal],
+                                [label],
+                                label,
+                                unit or "Valor",
+                            ),
+                            use_container_width=True,
+                        )
+
+                pdf_buffer = generate_service_report_pdf(
+                    selected_report_device,
+                    report_row,
+                    report_history,
+                    period_label,
+                )
+
+                filename = (
+                    f"AXION_"
+                    f"{selected_report_device}_"
+                    f"Relatorio_"
+                    f"{period_label.replace(' ', '_')}.pdf"
+                )
+
+                st.download_button(
+                    "Baixar relatorio PDF",
+                    data=pdf_buffer.getvalue(),
+                    file_name=filename,
+                    mime="application/pdf",
+                    type="primary",
+                    use_container_width=True,
+                )
 
 # ============================================================
 # CONFIGURAÇÃO
