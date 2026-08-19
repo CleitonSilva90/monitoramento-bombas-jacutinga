@@ -917,6 +917,66 @@ def load_history(device_id, days):
         return pd.DataFrame()
 
 
+
+@st.cache_data(ttl=30)
+def load_alarm_events(device_id, days):
+    """
+    Carrega eventos de alarme cujo intervalo se sobrepõe ao período solicitado.
+    Horários são mantidos em UTC no banco e convertidos apenas na apresentação.
+    """
+    if supabase is None or not device_id:
+        return pd.DataFrame()
+
+    start = (
+        datetime.now(timezone.utc)
+        - timedelta(days=days)
+    )
+
+    try:
+        response = (
+            supabase
+            .table("alarm_eventos")
+            .select(
+                "id,device_id,grandeza,canal,unidade,"
+                "motivo,valor_inicio,valor_fim,limite,"
+                "inicio_em,fim_em,ativo"
+            )
+            .eq("device_id", str(device_id))
+            .lt("inicio_em", datetime.now(timezone.utc).isoformat())
+            .or_(
+                "fim_em.is.null,"
+                f"fim_em.gte.{start.isoformat()}"
+            )
+            .order("inicio_em", desc=False)
+            .execute()
+        )
+
+        rows = response.data or []
+
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(rows)
+
+        for col in [
+            "inicio_em",
+            "fim_em",
+        ]:
+            if col in df.columns:
+                df[col] = pd.to_datetime(
+                    df[col],
+                    utc=True,
+                    errors="coerce",
+                )
+
+        return df
+
+    except Exception as exc:
+        st.error("Erro ao carregar histórico de alarmes.")
+        st.exception(exc)
+        return pd.DataFrame()
+
+
 # ============================================================
 # ALARMES
 # ============================================================
@@ -1594,6 +1654,7 @@ def generate_service_report_pdf(
     row,
     history,
     period_label,
+    alarm_events=None,
 ):
     """
     Gera o relatório de serviço do ativo em PDF.
@@ -1761,6 +1822,159 @@ def generate_service_report_pdf(
     story.append(
         Spacer(1, 14)
     )
+
+    # ------------------------------------------------------------
+    # HISTÓRICO DE ALARMES
+    # ------------------------------------------------------------
+
+    if alarm_events is not None and not alarm_events.empty:
+        story.append(
+            Paragraph(
+                "Historico de alarmes",
+                styles["Heading2"],
+            )
+        )
+
+        alarm_rows = [[
+            "Grandeza",
+            "Inicio",
+            "Fim",
+            "Duracao",
+            "Inicio",
+            "Fim",
+            "Limite",
+            "Motivo",
+        ]]
+
+        for _, event in alarm_events.iterrows():
+            start_dt = event.get("inicio_em")
+            end_dt = event.get("fim_em")
+
+            start_text = format_local_datetime(
+                start_dt,
+                "%d/%m/%Y %H:%M",
+            )
+
+            if pd.isna(end_dt):
+                end_text = "ATIVO"
+                duration_text = "Em andamento"
+            else:
+                end_text = format_local_datetime(
+                    end_dt,
+                    "%d/%m/%Y %H:%M",
+                )
+
+                try:
+                    duration_seconds = (
+                        pd.Timestamp(end_dt)
+                        - pd.Timestamp(start_dt)
+                    ).total_seconds()
+
+                    total_minutes = max(
+                        0,
+                        int(duration_seconds // 60)
+                    )
+
+                    days_part = total_minutes // 1440
+                    hours_part = (
+                        total_minutes % 1440
+                    ) // 60
+                    minutes_part = (
+                        total_minutes % 60
+                    )
+
+                    if days_part:
+                        duration_text = (
+                            f"{days_part}d "
+                            f"{hours_part}h "
+                            f"{minutes_part}min"
+                        )
+                    elif hours_part:
+                        duration_text = (
+                            f"{hours_part}h "
+                            f"{minutes_part}min"
+                        )
+                    else:
+                        duration_text = (
+                            f"{minutes_part}min"
+                        )
+
+                except Exception:
+                    duration_text = "—"
+
+            unit = str(
+                event.get("unidade") or ""
+            )
+
+            value_start = format_value(
+                event.get("valor_inicio"),
+                2,
+                unit,
+            )
+
+            value_end = (
+                "—"
+                if pd.isna(event.get("valor_fim"))
+                else format_value(
+                    event.get("valor_fim"),
+                    2,
+                    unit,
+                )
+            )
+
+            limit = format_value(
+                event.get("limite"),
+                2,
+                unit,
+            )
+
+            alarm_rows.append([
+                str(event.get("grandeza") or "Alarme"),
+                start_text,
+                end_text,
+                duration_text,
+                value_start,
+                value_end,
+                limit,
+                str(event.get("motivo") or ""),
+            ])
+
+        alarm_table = Table(
+            alarm_rows,
+            repeatRows=1,
+            colWidths=[
+                88,
+                72,
+                72,
+                65,
+                55,
+                55,
+                55,
+                92,
+            ],
+        )
+
+        alarm_table.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#b4232d")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [
+                    colors.white,
+                    colors.HexColor("#fff7f7"),
+                ]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ])
+        )
+
+        story.append(alarm_table)
+        story.append(Spacer(1, 12))
 
     # Qualitative interpretation based only on the measured values.
     story.append(
@@ -3200,6 +3414,11 @@ elif st.session_state.view == "reports":
             period_days,
         )
 
+        report_alarm_events = load_alarm_events(
+            selected_report_device,
+            period_days,
+        )
+
         selected_rows = device_rows[
             device_rows["device_id"].astype(str)
             == selected_report_device
@@ -3344,11 +3563,99 @@ elif st.session_state.view == "reports":
                             use_container_width=True,
                         )
 
+                st.markdown(
+                    "### Historico de alarmes"
+                )
+
+                if report_alarm_events.empty:
+                    st.info(
+                        "Nenhum evento de alarme registrado no período."
+                    )
+                else:
+                    alarm_view = report_alarm_events.copy()
+
+                    alarm_view["Inicio"] = alarm_view[
+                        "inicio_em"
+                    ].apply(
+                        lambda value: format_local_datetime(
+                            value,
+                            "%d/%m/%Y %H:%M"
+                        )
+                    )
+
+                    alarm_view["Fim"] = alarm_view[
+                        "fim_em"
+                    ].apply(
+                        lambda value: (
+                            "ATIVO"
+                            if pd.isna(value)
+                            else format_local_datetime(
+                                value,
+                                "%d/%m/%Y %H:%M"
+                            )
+                        )
+                    )
+
+                    alarm_view["Valor inicial"] = alarm_view.apply(
+                        lambda item: format_value(
+                            item.get("valor_inicio"),
+                            2,
+                            item.get("unidade", "")
+                        ),
+                        axis=1,
+                    )
+
+                    alarm_view["Valor final"] = alarm_view.apply(
+                        lambda item: (
+                            "—"
+                            if pd.isna(item.get("valor_fim"))
+                            else format_value(
+                                item.get("valor_fim"),
+                                2,
+                                item.get("unidade", "")
+                            )
+                        ),
+                        axis=1,
+                    )
+
+                    alarm_view["Limite"] = alarm_view.apply(
+                        lambda item: format_value(
+                            item.get("limite"),
+                            2,
+                            item.get("unidade", "")
+                        ),
+                        axis=1,
+                    )
+
+                    alarm_view = alarm_view.rename(
+                        columns={
+                            "grandeza": "Grandeza",
+                            "motivo": "Motivo",
+                        }
+                    )
+
+                    st.dataframe(
+                        alarm_view[
+                            [
+                                "Grandeza",
+                                "Inicio",
+                                "Fim",
+                                "Valor inicial",
+                                "Valor final",
+                                "Limite",
+                                "Motivo",
+                            ]
+                        ],
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+
                 pdf_buffer = generate_service_report_pdf(
                     selected_report_device,
                     report_row,
                     report_history,
                     period_label,
+                    report_alarm_events,
                 )
 
                 filename = (
