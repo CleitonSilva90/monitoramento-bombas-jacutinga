@@ -1,4 +1,6 @@
 
+
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -92,385 +94,29 @@ else:
 st.markdown(
     """
     <style>
-        :root {
-            --bg: #080c16;
-            --surface: #111827;
-            --surface-2: #151f33;
-            --border: #28364d;
-            --text: #f8fafc;
-            --muted: #8fa0b8;
-            --muted-2: #66758c;
-            --blue: #587cff;
-            --blue-soft: rgba(88,124,255,.12);
-            --green: #25d58c;
-            --green-soft: rgba(37,213,140,.12);
-            --red: #ff626b;
-            --red-soft: rgba(255,98,107,.12);
-        }
-
-        * {
-            box-sizing: border-box;
-        }
-
-        .stApp {
-            background:
-                radial-gradient(circle at 15% 0%, rgba(88,124,255,.07), transparent 28%),
-                radial-gradient(circle at 100% 0%, rgba(37,213,140,.04), transparent 24%),
-                var(--bg);
-            color: var(--text);
-        }
-
-        .block-container {
-            max-width: 1500px;
-            padding: .85rem 1rem 2rem;
-        }
-
-        body,
-        .stApp,
-        .stMarkdown,
-        p,
-        label,
-        span,
-        div {
-            -webkit-font-smoothing: antialiased;
-            text-rendering: optimizeLegibility;
-        }
-
-        [data-testid="stHeader"] {
-            display: none;
-        }
-
-        /* Header */
-        .top-card {
-            background: linear-gradient(180deg, #121b2c 0%, #0f1726 100%);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: .82rem 1rem;
-            box-shadow: 0 8px 28px rgba(0,0,0,.12);
-        }
-
-        .brand-title {
-            color: #ffffff;
-            font-size: 1.25rem;
-            font-weight: 900;
-            letter-spacing: -.025em;
-            line-height: 1.05;
-        }
-
-        .brand-accent {
-            color: #7696ff;
-        }
-
-        .brand-sub {
-            margin-top: .28rem;
-            color: #8797ac;
-            font-size: .68rem;
-            font-weight: 650;
-        }
-
-        /* Navigation */
-        div.stButton > button {
-            width: 100%;
-            min-height: 44px;
-            border-radius: 10px;
-            border: 1px solid #33445d;
-            background: #111a2b;
-            color: #dbe5f1;
-            font-weight: 750;
-            font-size: .80rem;
-            box-shadow: none;
-        }
-
-        div.stButton > button:hover {
-            border-color: #5a7dff;
-            background: #18243a;
-            color: #ffffff;
-        }
-
-        div.stButton > button[kind="primary"] {
-            background: linear-gradient(180deg, #587cff 0%, #4669e7 100%);
-            border-color: #6488ff;
-            color: #ffffff;
-            box-shadow: 0 5px 16px rgba(88,124,255,.20);
-        }
-
-        div.stButton > button[kind="primary"]:hover {
-            background: linear-gradient(180deg, #6689ff 0%, #5074f1 100%);
-        }
-
-        div.stButton > button p {
-            color: inherit !important;
-            font-weight: 750 !important;
-        }
-
-        /* Typography */
-        .page-kicker {
-            margin-top: .25rem;
-            color: #677890;
-            font-size: .66rem;
-            font-weight: 850;
-            text-transform: uppercase;
-            letter-spacing: .12em;
-        }
-
-        .page-title,
-        h1, h2, h3 {
-            color: #f8fafc !important;
-            letter-spacing: -.03em;
-        }
-
-        .page-title {
-            margin-top: .12rem;
-            margin-bottom: .6rem;
-            font-size: 1.55rem;
-            font-weight: 900;
-        }
-
-        .muted {
-            color: #a8b4c4 !important;
-            font-size: .77rem;
-            font-weight: 600;
-        }
-
-        .small {
-            color: #8797ac !important;
-            font-size: .70rem;
-            font-weight: 700;
-        }
-
-        /* KPI */
-        .kpi {
-            background: linear-gradient(180deg, #111a2b 0%, #0f1725 100%);
-            border: 1px solid var(--border);
-            border-radius: 13px;
-            padding: .82rem .95rem;
-            min-height: 88px;
-            box-shadow: 0 7px 22px rgba(0,0,0,.08);
-        }
-
-        .kpi-value {
-            margin-top: .18rem;
-            font-size: 1.75rem;
-            line-height: 1;
-            font-weight: 900;
-            color: #ffffff;
-        }
-
-        /* Location */
-        .location-title {
-            margin-top: 1.1rem;
-            margin-bottom: .55rem;
-            color: #dbe7f5;
-            font-size: .82rem;
-            font-weight: 850;
-            letter-spacing: .01em;
-        }
-
-        .location-title::before {
-            content: "";
-            display: inline-block;
-            width: 7px;
-            height: 7px;
-            margin-right: 7px;
-            border-radius: 50%;
-            background: var(--blue);
-            box-shadow: 0 0 10px rgba(88,124,255,.45);
-            vertical-align: middle;
-        }
-
-        /* Device card */
-        [data-testid="stVerticalBlockBorderWrapper"] {
-            background: linear-gradient(180deg, rgba(17,26,43,.98) 0%, rgba(13,20,33,.98) 100%) !important;
-            border-color: #28364d !important;
-            border-radius: 15px !important;
-            box-shadow: 0 9px 28px rgba(0,0,0,.12);
-        }
-
-        [data-testid="stVerticalBlockBorderWrapper"] > div {
-            padding-top: .7rem !important;
-            padding-bottom: .72rem !important;
-        }
-
-        /* Device header native elements */
-        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"] {
-            color: #74859c !important;
-        }
-
-        [data-testid="stVerticalBlockBorderWrapper"] h3 {
-            font-size: 1.18rem !important;
-            font-weight: 900 !important;
-            margin-bottom: .05rem !important;
-        }
-
-        [data-testid="stVerticalBlockBorderWrapper"] hr {
-            border-color: rgba(148,163,184,.10) !important;
-            margin: .55rem 0 .7rem !important;
-        }
-
-        /* Metrics */
-        [data-testid="stMetric"] {
-            padding: .18rem 0 !important;
-        }
-
-        [data-testid="stMetricLabel"] {
-            color: #8798ad !important;
-            font-size: .66rem !important;
-            font-weight: 800 !important;
-            letter-spacing: .02em !important;
-        }
-
-        [data-testid="stMetricValue"] {
-            color: #ffffff !important;
-            font-size: 1.08rem !important;
-            font-weight: 900 !important;
-            letter-spacing: -.02em !important;
-        }
-
-        [data-testid="stMetricDelta"] {
-            color: #92a2b7 !important;
-            font-size: .66rem !important;
-            font-weight: 700 !important;
-        }
-
-        /* Section labels */
-        [data-testid="stVerticalBlockBorderWrapper"] .stCaption,
-        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"] {
-            color: #75869c !important;
-        }
-
-        /* Status */
-        .pill-online,
-        .pill-offline,
-        .pill-alarm {
-            display: inline-flex;
-            align-items: center;
-            padding: .31rem .60rem;
-            border-radius: 999px;
-            font-size: .65rem;
-            font-weight: 850;
-            letter-spacing: .04em;
-        }
-
-        .pill-online {
-            color: #48e49c;
-            background: var(--green-soft);
-            border: 1px solid rgba(37,213,140,.28);
-        }
-
-        .pill-offline {
-            color: #cbd5e1;
-            background: rgba(100,116,139,.10);
-            border: 1px solid rgba(148,163,184,.20);
-        }
-
-        .pill-alarm {
-            color: #ff858c;
-            background: var(--red-soft);
-            border: 1px solid rgba(255,98,107,.26);
-        }
-
-        /* Forms */
-        div[data-baseweb="select"] > div,
-        div[data-baseweb="input"] > div,
-        textarea,
-        input {
-            background: #121c2e !important;
-            color: #f8fafc !important;
-            border-color: #3a4b63 !important;
-        }
-
-        div[data-baseweb="select"] span,
-        div[data-baseweb="select"] input {
-            color: #f8fafc !important;
-        }
-
-        [data-testid="stForm"] label,
-        [data-testid="stForm"] label p,
-        [data-testid="stForm"] label span {
-            color: #d9e2ee !important;
-            font-weight: 750 !important;
-        }
-
-        [data-testid="stExpander"] {
-            border: 1px solid #2a3a52;
-            border-radius: 11px;
-            background: #10192a;
-        }
-
-        [data-testid="stExpander"] summary {
-            color: #f3f7fb !important;
-            font-weight: 800 !important;
-        }
-
-
-        /* Gauge cards */
-        [data-testid="stVerticalBlockBorderWrapper"] .js-plotly-plot {
-            margin: -.15rem 0 -.1rem;
-        }
-
-        [data-testid="stVerticalBlockBorderWrapper"] .plot-container {
-            background: transparent !important;
-        }
-
-        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMetricLabel"] {
-            color: #7e90a8 !important;
-        }
-
-        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMetricValue"] {
-            font-size: 1.08rem !important;
-        }
-
-        .gauge-summary {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: .25rem;
-            text-align: center;
-        }
-
-        .gauge-summary-label {
-            color: #687991;
-            font-size: .56rem;
-            font-weight: 850;
-            text-transform: uppercase;
-        }
-
-        .gauge-summary-value {
-            color: #dbe7f5;
-            font-size: .72rem;
-            font-weight: 800;
-            margin-top: .08rem;
-        }
-
-        /* Mobile */
-        @media (max-width: 900px) {
-            .block-container {
-                padding: .65rem .65rem 1.25rem;
-            }
-
-            .top-card {
-                padding: .75rem .85rem;
-            }
-
-            .brand-title {
-                font-size: 1.08rem;
-            }
-
-            .page-title {
-                font-size: 1.32rem;
-            }
-
-            .kpi {
-                min-height: 80px;
-            }
-
-            .kpi-value {
-                font-size: 1.48rem;
-            }
-
-            [data-testid="stMetricValue"] {
-                font-size: 1.0rem !important;
-            }
-        }
+        :root { --page:#f4f6f8; --surface:#fff; --border:#d8dee6; --text:#1f2937; --muted:#6f7b8b; --blue:#536fca; --green:#39b985; --red:#e45b63; --shadow:0 5px 18px rgba(31,41,55,.055); }
+        *{box-sizing:border-box}
+        .stApp{background:linear-gradient(180deg,#f8fafc 0%,#f2f5f7 100%);color:var(--text)}
+        .block-container{max-width:1500px;padding:.8rem 1rem 2rem}
+        [data-testid="stHeader"]{display:none}
+        .top-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:.85rem 1rem;box-shadow:var(--shadow)}
+        .brand-title{color:#162033;font-size:1.25rem;font-weight:900;line-height:1.05;letter-spacing:-.025em}.brand-accent{color:var(--blue)}.brand-sub{margin-top:.3rem;color:#7a8594;font-size:.68rem;font-weight:650}
+        div.stButton>button{width:100%;min-height:42px;border-radius:10px;border:1px solid #c8d0da;background:#fff;color:#344054;font-weight:750;font-size:.79rem;box-shadow:0 2px 6px rgba(31,41,55,.035)}
+        div.stButton>button:hover{background:#f4f7fc;border-color:#8ca2d7;color:#234a9f}
+        div.stButton>button[kind="primary"]{background:#536fca;border-color:#536fca;color:#fff;box-shadow:0 4px 12px rgba(83,111,201,.18)}
+        div.stButton>button p{color:inherit!important;font-weight:750!important}
+        .page-kicker{color:#7a8594;font-size:.64rem;font-weight:850;text-transform:uppercase;letter-spacing:.11em}.page-title,h1,h2,h3{color:#1c2635!important;letter-spacing:-.03em}.page-title{margin-top:.1rem;margin-bottom:.55rem;font-size:1.5rem;font-weight:900}
+        .muted{color:#7b8594!important}.small{color:#7c8796!important;font-size:.67rem;font-weight:800}
+        .kpi{background:#fff;border:1px solid var(--border);border-radius:13px;padding:.8rem .95rem;min-height:82px;box-shadow:var(--shadow)}.kpi-value{color:#182233;font-size:1.72rem;line-height:1;font-weight:900}
+        .location-title{margin-top:1rem;margin-bottom:.55rem;color:#2f3a4a;font-size:.81rem;font-weight:850}.location-title::before{content:"";display:inline-block;width:7px;height:7px;margin-right:7px;border-radius:50%;background:#657fd1;vertical-align:middle}
+        [data-testid="stVerticalBlockBorderWrapper"]{background:#fff!important;border:1px solid #d9dfe6!important;border-radius:15px!important;box-shadow:var(--shadow)}
+        [data-testid="stVerticalBlockBorderWrapper"]>div{padding-top:.65rem!important;padding-bottom:.65rem!important}[data-testid="stVerticalBlockBorderWrapper"] h3{color:#162033!important;font-size:1.16rem!important;font-weight:900!important}[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"]{color:#798594!important}[data-testid="stVerticalBlockBorderWrapper"] hr{border-color:#e5e8ed!important;margin:.55rem 0 .7rem!important}
+        [data-testid="stMetricLabel"]{color:#707c8b!important;font-size:.65rem!important;font-weight:800!important}[data-testid="stMetricValue"]{color:#172131!important;font-size:1.05rem!important;font-weight:900!important}[data-testid="stMetricDelta"]{color:#7b8594!important;font-size:.64rem!important}
+        .pill-online,.pill-offline,.pill-alarm{display:inline-flex;align-items:center;padding:.3rem .58rem;border-radius:999px;font-size:.63rem;font-weight:850}.pill-online{color:#21825b;background:#e6f7ef;border:1px solid #bce7d1}.pill-offline{color:#5f6b79;background:#f1f3f5;border:1px solid #dfe4e9}.pill-alarm{color:#b43b44;background:#fdebec;border:1px solid #f2c4c7}
+        .gauge-card{width:100%;min-height:288px;background:#fff;border:1px solid #e0e5eb;border-radius:14px;padding:.55rem .55rem .35rem;box-shadow:0 3px 11px rgba(31,41,55,.035);overflow:hidden}.gauge-title{text-align:center;color:#5f6c7d;font-size:.67rem;font-weight:800;min-height:2.1em;display:flex;align-items:center;justify-content:center}.gauge-svg{display:block;width:100%;max-width:290px;margin:0 auto;height:auto;pointer-events:none;user-select:none}.gauge-value{text-align:center;margin-top:-.38rem;color:#182233;font-size:1.4rem;font-weight:900;letter-spacing:-.03em}.gauge-range{display:grid;grid-template-columns:repeat(3,1fr);color:#8993a0;font-size:.57rem;font-weight:700;padding:.08rem .25rem .12rem}.gauge-range span:nth-child(2){text-align:center}.gauge-range span:last-child{text-align:right}
+        div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
+        [data-testid="stForm"] label,[data-testid="stForm"] label p,[data-testid="stForm"] label span{color:#4c5665!important;font-weight:750!important}[data-testid="stExpander"]{background:#fff;border:1px solid #d9dfe6;border-radius:11px}[data-testid="stExpander"] summary{color:#263242!important;font-weight:800!important}
+        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}.gauge-card{min-height:252px}.gauge-value{font-size:1.22rem}}
     </style>
     """,
     unsafe_allow_html=True,
@@ -2234,106 +1880,29 @@ channel_configs = load_channel_configs()
 
 
 
-def analog_gauge(
-    title,
-    value,
-    unit,
-    scale_min,
-    scale_max,
-    alarm_min=None,
-    alarm_max=None,
-):
-    """
-    Gauge compacto para uma entrada analógica.
-    A escala vem da configuração da entrada; não há valores fixos
-    de engenharia no firmware.
-    """
-    value = safe_float(value)
-    scale_min = safe_float(scale_min, 0)
-    scale_max = safe_float(scale_max, 100)
-
-    if not np.isfinite(value):
-        value = scale_min
-
-    if not np.isfinite(scale_min):
-        scale_min = 0
-
-    if not np.isfinite(scale_max) or scale_max <= scale_min:
-        scale_max = scale_min + 1
-
-    # Mantém o ponteiro visível quando a leitura passa levemente do limite.
-    display_value = max(
-        scale_min,
-        min(value, scale_max)
-    )
-
-    bar_color = "#22c55e"
-
-    if np.isfinite(safe_float(alarm_max)) and value > safe_float(alarm_max):
-        bar_color = "#ef4444"
-    elif np.isfinite(safe_float(alarm_min)) and value < safe_float(alarm_min):
-        bar_color = "#ef4444"
-
-    fig = go.Figure(
-        go.Indicator(
-            mode="gauge+number",
-            value=display_value,
-            number={
-                "font": {
-                    "size": 30,
-                    "color": "#f8fafc",
-                },
-                "suffix": f" {unit}" if unit else "",
-            },
-            title={
-                "text": title,
-                "font": {
-                    "size": 13,
-                    "color": "#9aa9bd",
-                },
-            },
-            gauge={
-                "shape": "angular",
-                "axis": {
-                    "range": [scale_min, scale_max],
-                    "tickfont": {
-                        "size": 9,
-                        "color": "#71829a",
-                    },
-                },
-                "bar": {
-                    "color": bar_color,
-                    "thickness": 0.22,
-                },
-                "bgcolor": "#0d1422",
-                "borderwidth": 0,
-            },
-        )
-    )
-
-    if np.isfinite(safe_float(alarm_max)):
-        fig.add_hline(
-            y=safe_float(alarm_max),
-            line_width=0,
-            opacity=0,
-        )
-
-    fig.update_layout(
-        height=235,
-        margin={
-            "l": 18,
-            "r": 18,
-            "t": 28,
-            "b": 8,
-        },
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font={
-            "color": "#f8fafc",
-        },
-    )
-
-    return fig
+def analog_gauge_html(title, value, unit, scale_min, scale_max, alarm_min=None, alarm_max=None):
+    raw_value = safe_float(value)
+    smin = safe_float(scale_min, 0)
+    smax = safe_float(scale_max, 100)
+    if not np.isfinite(smin): smin = 0.0
+    if not np.isfinite(smax) or smax <= smin: smax = smin + 1.0
+    if not np.isfinite(raw_value): raw_value = smin
+    pct = max(0.0, min(1.0, (raw_value-smin)/(smax-smin)))
+    alarm_low = safe_float(alarm_min); alarm_high = safe_float(alarm_max)
+    critical = ((np.isfinite(alarm_low) and raw_value < alarm_low) or
+                (np.isfinite(alarm_high) and raw_value > alarm_high))
+    color = "#e45b63" if critical else "#39b985"
+    radius=82; circumference=math.pi*radius; dash=circumference*pct; gap=circumference-dash
+    mid=(smin+smax)/2
+    return f"""<div class="gauge-card">
+      <div class="gauge-title">{title}</div>
+      <svg class="gauge-svg" viewBox="0 0 240 155" aria-label="{title}">
+        <path d="M 38 118 A 82 82 0 0 1 202 118" fill="none" stroke="#dfe4ea" stroke-width="18" stroke-linecap="round"/>
+        <path d="M 38 118 A 82 82 0 0 1 202 118" fill="none" stroke="{color}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.2f} {gap:.2f}" pathLength="{circumference:.2f}"/>
+      </svg>
+      <div class="gauge-value">{format_value(raw_value, 2, unit)}</div>
+      <div class="gauge-range"><span>{format_value(smin,0,"")}</span><span>{format_value(mid,0,"")}</span><span>{format_value(smax,0,"")}</span></div>
+    </div>"""
 
 
 # ============================================================
@@ -2681,22 +2250,13 @@ if st.session_state.view == "dashboard":
                                 ):
 
                                     with gauge_col:
-
-                                        st.plotly_chart(
-                                            analog_gauge(
-                                                item["label"],
-                                                item["value"],
-                                                item["unit"],
-                                                item["eng_min"],
-                                                item["eng_max"],
-                                                item["alarm_min"],
-                                                item["alarm_max"],
+                                        st.markdown(
+                                            analog_gauge_html(
+                                                item["label"], item["value"], item["unit"],
+                                                item["eng_min"], item["eng_max"],
+                                                item["alarm_min"], item["alarm_max"],
                                             ),
-                                            use_container_width=True,
-                                            config={
-                                                "displayModeBar": False,
-                                                "responsive": True,
-                                            },
+                                            unsafe_allow_html=True,
                                         )
 
                                         # Min/max atuais do período
@@ -2727,15 +2287,12 @@ if st.session_state.view == "dashboard":
                                             ).dropna()
 
                                         if not values.empty:
-                                            avg = float(
-                                                values.mean()
-                                            )
-                                            minimum = float(
-                                                values.min()
-                                            )
-                                            maximum = float(
-                                                values.max()
-                                            )
+                                            avg = float(values.mean())
+                                            minimum = float(values.min())
+                                            maximum = float(values.max())
+                                            minimum = max(item["eng_min"], min(minimum, item["eng_max"]))
+                                            maximum = max(item["eng_min"], min(maximum, item["eng_max"]))
+                                            avg = max(item["eng_min"], min(avg, item["eng_max"]))
 
                                             st.markdown(
                                                 f"""
