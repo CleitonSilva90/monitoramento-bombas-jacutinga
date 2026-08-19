@@ -1,7 +1,6 @@
 
 
 
-
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -2164,7 +2163,11 @@ if st.session_state.view == "dashboard":
 
 elif st.session_state.view == "details":
 
-    devices = device_rows["device_id"].astype(str).tolist() if not device_rows.empty else []
+    devices = (
+        device_rows["device_id"].astype(str).tolist()
+        if not device_rows.empty
+        else []
+    )
 
     if not devices:
         st.info("Nenhum dispositivo disponível.")
@@ -2203,69 +2206,255 @@ elif st.session_state.view == "details":
                 "7 dias": 7,
             }[period_label]
 
-            history = load_history(selected, period_days)
+            history = load_history(
+                selected,
+                period_days
+            )
+
+            # ------------------------------------------------
+            # CONFIGURAÇÃO DO DISPOSITIVO
+            # ------------------------------------------------
+
+            device_cfg = load_devices()
+            full_scale_v = safe_float(
+                row.get("adc_full_scale_v"),
+                4.096
+            )
+
+            if not device_cfg.empty:
+                device_match = device_cfg[
+                    device_cfg["device_id"].astype(str)
+                    == str(selected)
+                ]
+
+                if not device_match.empty:
+                    full_scale_v = safe_float(
+                        device_match.iloc[0].get(
+                            "adc_full_scale_v"
+                        ),
+                        4.096
+                    )
+
+            # ------------------------------------------------
+            # STATUS / CABEÇALHO
+            # ------------------------------------------------
 
             st.markdown(
                 f"## {row.get('nome', selected)}"
             )
+
             st.markdown(
                 f"{status_badge(str(row.get('status', 'Offline')))} "
                 f"<span class='muted'>{selected}</span>",
                 unsafe_allow_html=True,
             )
 
-            c1, c2, c3, c4 = st.columns(4)
+            # ------------------------------------------------
+            # ENTRADAS ATIVAS
+            # ------------------------------------------------
 
-            with c1:
-                st.metric(
-                    "Pressão",
-                    format_value(pressure, 2, pressure_unit),
+            active_ai = []
+
+            for canal_num in range(1, 9):
+                canal_name = f"AI{canal_num:03d}"
+
+                if is_channel_active(
+                    channel_configs,
+                    selected,
+                    canal_name
+                ):
+                    active_ai.append(canal_name)
+
+            # ------------------------------------------------
+            # PRESSÃO
+            # ------------------------------------------------
+
+            pressure_active = "AI004" in active_ai
+
+            pressure = np.nan
+            pressure_unit = ""
+            pressure_mca = np.nan
+
+            if pressure_active:
+                pressure_cfg = get_channel_config(
+                    channel_configs,
+                    selected,
+                    "AI004"
                 )
 
-            with c2:
-                st.metric(
-                    "Pressão",
-                    format_value(pressure_mca, 1, "MCA") if np.isfinite(pressure_mca) else "—",
+                pressure = get_channel_value(
+                    row,
+                    channel_configs,
+                    selected,
+                    "AI004",
+                    full_scale_v
                 )
 
-            with c3:
-                st.metric(
-                    "Vibração X",
-                    format_value(row.get("x_mm_s"), 3, "mm/s"),
+                pressure_unit = channel_unit(
+                    pressure_cfg,
+                    ""
                 )
 
-            with c4:
-                st.metric(
-                    "Vibração Z",
-                    format_value(row.get("z_mm_s"), 3, "mm/s"),
-                )
-
-            st.markdown("### Temperaturas")
-            t1, t2, t3 = st.columns(3)
-
-            for canal, container in [
-                ("AI006", t1),
-                ("AI007", t2),
-                ("AI008", t3),
-            ]:
-                cfg = channel_configs.get((selected, canal), {})
-                with container:
-                    st.metric(
-                        channel_display_name(cfg, canal),
-                        format_value(
-                            row.get(channel_field(canal)),
-                            1,
-                            channel_unit(cfg, "°C"),
-                        ),
+                if pressure_unit.lower() == "bar":
+                    pressure_mca = bar_to_mca(
+                        pressure
                     )
 
-            st.markdown("### Vibração")
+            # ------------------------------------------------
+            # MÉTRICAS PRINCIPAIS
+            # ------------------------------------------------
+
+            main_metrics = []
+
+            if pressure_active:
+                main_metrics.append(
+                    (
+                        "Pressão",
+                        format_value(
+                            pressure,
+                            int(
+                                safe_float(
+                                    pressure_cfg.get(
+                                        "decimais"
+                                    ),
+                                    2
+                                )
+                            ),
+                            pressure_unit
+                        )
+                    )
+                )
+
+                if np.isfinite(pressure_mca):
+                    main_metrics.append(
+                        (
+                            "Pressão",
+                            format_value(
+                                pressure_mca,
+                                1,
+                                "MCA"
+                            )
+                        )
+                    )
+
+            main_metrics.extend([
+                (
+                    "Vibração X",
+                    format_value(
+                        row.get("x_mm_s"),
+                        3,
+                        "mm/s"
+                    )
+                ),
+                (
+                    "Vibração Z",
+                    format_value(
+                        row.get("z_mm_s"),
+                        3,
+                        "mm/s"
+                    )
+                ),
+            ])
+
+            metric_columns = st.columns(
+                min(4, len(main_metrics))
+            )
+
+            for index, metric_data in enumerate(
+                main_metrics[:4]
+            ):
+                with metric_columns[index]:
+                    st.metric(
+                        metric_data[0],
+                        metric_data[1]
+                    )
+
+            # ------------------------------------------------
+            # ENTRADAS ANALÓGICAS ATIVAS
+            # ------------------------------------------------
+
+            active_analog_channels = [
+                canal
+                for canal in active_ai
+            ]
+
+            if active_analog_channels:
+                st.markdown(
+                    "### Entradas analógicas"
+                )
+
+                analog_columns = st.columns(
+                    min(4, len(active_analog_channels))
+                )
+
+                for index, canal in enumerate(
+                    active_analog_channels
+                ):
+                    cfg = get_channel_config(
+                        channel_configs,
+                        selected,
+                        canal
+                    )
+
+                    label = channel_display_name(
+                        cfg,
+                        canal
+                    )
+
+                    unit = channel_unit(
+                        cfg,
+                        ""
+                    )
+
+                    value = get_channel_value(
+                        row,
+                        channel_configs,
+                        selected,
+                        canal,
+                        full_scale_v
+                    )
+
+                    decimals = int(
+                        safe_float(
+                            cfg.get("decimais"),
+                            2
+                        )
+                    )
+
+                    with analog_columns[
+                        index % len(analog_columns)
+                    ]:
+                        st.metric(
+                            label,
+                            format_value(
+                                value,
+                                decimals,
+                                unit
+                            )
+                        )
+
+            # ------------------------------------------------
+            # VIBRAÇÃO
+            # ------------------------------------------------
+
+            st.markdown(
+                "### Vibração"
+            )
+
             if not history.empty:
                 st.plotly_chart(
                     line_chart(
                         history,
-                        ["x_mm_s", "y_mm_s", "z_mm_s"],
-                        ["X", "Y", "Z"],
+                        [
+                            "x_mm_s",
+                            "y_mm_s",
+                            "z_mm_s"
+                        ],
+                        [
+                            "X",
+                            "Y",
+                            "Z"
+                        ],
                         "Velocidade de vibração",
                         "mm/s RMS",
                     ),
@@ -2275,50 +2464,95 @@ elif st.session_state.view == "details":
                 st.plotly_chart(
                     line_chart(
                         history,
-                        ["x_rms", "y_rms", "z_rms"],
-                        ["X RMS", "Y RMS", "Z RMS"],
+                        [
+                            "x_rms",
+                            "y_rms",
+                            "z_rms"
+                        ],
+                        [
+                            "X RMS",
+                            "Y RMS",
+                            "Z RMS"
+                        ],
                         "Aceleração RMS",
                         "g RMS",
                     ),
                     use_container_width=True,
                 )
 
-                st.plotly_chart(
-                    line_chart(
-                        history,
-                        ["pressao_mca"],
-                        ["Pressão"],
-                        "Pressão",
-                        "MCA",
-                    ),
-                    use_container_width=True,
+                # Pressão histórica somente quando AI004 está ativa
+                # e possui unidade bar.
+                if pressure_active:
+                    if (
+                        "pressao_mca" in history.columns
+                        and history["pressao_mca"].notna().any()
+                    ):
+                        st.plotly_chart(
+                            line_chart(
+                                history,
+                                ["pressao_mca"],
+                                ["Pressão"],
+                                "Pressão",
+                                "MCA",
+                            ),
+                            use_container_width=True,
+                        )
+
+                # Gráficos somente das AIs ativas.
+                active_chart_channels = [
+                    canal
+                    for canal in active_ai
+                    if canal != "AI004"
+                ]
+
+                if active_chart_channels:
+                    chart_columns = []
+                    chart_labels = []
+
+                    for canal in active_chart_channels:
+                        if canal in history.columns:
+                            chart_columns.append(canal)
+
+                            cfg = get_channel_config(
+                                channel_configs,
+                                selected,
+                                canal
+                            )
+
+                            chart_labels.append(
+                                channel_display_name(
+                                    cfg,
+                                    canal
+                                )
+                            )
+
+                    if chart_columns:
+                        st.plotly_chart(
+                            line_chart(
+                                history,
+                                chart_columns,
+                                chart_labels,
+                                "Entradas analógicas",
+                                "Valor",
+                            ),
+                            use_container_width=True,
+                        )
+
+            else:
+                st.info(
+                    "Sem dados históricos para o período selecionado."
                 )
 
-                st.plotly_chart(
-                    line_chart(
-                        history,
-                        ["AI006", "AI007", "AI008"],
-                        [
-                            channel_display_name(
-                                channel_configs.get((selected, "AI006"), {}),
-                                "AI006",
-                            ),
-                            channel_display_name(
-                                channel_configs.get((selected, "AI007"), {}),
-                                "AI007",
-                            ),
-                            channel_display_name(
-                                channel_configs.get((selected, "AI008"), {}),
-                                "AI008",
-                            ),
-                        ],
-                        "Temperaturas",
-                        "°C",
-                    ),
-                    use_container_width=True,
-                )
-            else:
-                st.info("Sem dados históricos para o período selecionado.")
+            # ------------------------------------------------
+            # ÚLTIMA LEITURA
+            # ------------------------------------------------
+
+            last = row.get("recebido_em")
+
+            st.caption(
+                f"Última leitura: "
+                f"{format_local_datetime(last)}"
+            )
 
 
 # ============================================================
