@@ -1,6 +1,7 @@
 
 
 
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -3197,33 +3198,42 @@ elif st.session_state.view == "config":
 
     with st.expander("➕ Cadastrar novo equipamento", expanded=False):
         st.caption(
-            "Cadastre o device_id real do AXION. Não invente o ID: use o mesmo "
-            "device_id que aparece no payload MQTT."
+            "Primeiro conecte o AXION ao AXION Configurator e confirme o Device ID. "
+            "Depois informe aqui exatamente esse identificador. O site criará o "
+            "equipamento e as entradas AI001–AI008 automaticamente."
         )
 
         with st.form("new_device_form"):
             new_device_id = st.text_input(
-                "Device ID",
-                placeholder="Ex.: AXION-001",
+                "Device ID do AXION",
+                placeholder="Ex.: AXION-000002",
+                help=(
+                    "Use exatamente o Device ID exibido pelo AXION Configurator."
+                ),
             )
+
             new_device_name = st.text_input(
                 "Nome exibido",
-                placeholder="Ex.: Bomba 01",
+                placeholder="Ex.: Bomba 02",
             )
+
             new_device_location = st.selectbox(
                 "Local",
-                ["Jacutinga", "Intermédiaria"],
+                ["Jacutinga", "Intermediária"],
             )
+
             new_device_description = st.text_input(
                 "Descrição",
                 placeholder="Ex.: Captação principal",
             )
+
             new_device_order = st.number_input(
                 "Ordem",
                 min_value=1,
                 value=1,
                 step=1,
             )
+
             new_device_active = st.checkbox(
                 "Equipamento ativo",
                 value=True,
@@ -3235,39 +3245,136 @@ elif st.session_state.view == "config":
             )
 
         if create_device:
-            if not new_device_id.strip():
+            device_id_value = new_device_id.strip()
+            device_name_value = (
+                new_device_name.strip()
+                or device_id_value
+            )
+
+            if not device_id_value:
                 st.error("Informe o Device ID.")
+
             elif supabase is None:
                 st.error("Supabase indisponível.")
+
             else:
                 try:
-                    (
+                    # --------------------------------------------
+                    # 1. Verifica se o equipamento já existe.
+                    # --------------------------------------------
+                    existing = (
                         supabase
                         .table("dispositivos")
-                        .insert({
-                            "device_id": new_device_id.strip(),
-                            "nome_exibicao": new_device_name.strip() or new_device_id.strip(),
-                            "local": new_device_location,
-                            "descricao": new_device_description.strip() or None,
-                            "ativo": new_device_active,
-                            "ordem": int(new_device_order),
-                        })
+                        .select("device_id")
+                        .eq("device_id", device_id_value)
+                        .limit(1)
                         .execute()
                     )
 
-                    load_devices.clear()
-                    st.success(f"{new_device_id.strip()} cadastrado.")
-                    st.rerun()
+                    if existing.data:
+                        st.error(
+                            f"O equipamento {device_id_value} já está cadastrado."
+                        )
+                    else:
+                        # ----------------------------------------
+                        # 2. Cria o dispositivo.
+                        # ----------------------------------------
+                        device_payload = {
+                            "device_id": device_id_value,
+                            "nome_exibicao": device_name_value,
+                            "local": new_device_location,
+                            "descricao": (
+                                new_device_description.strip()
+                                or None
+                            ),
+                            "ativo": new_device_active,
+                            "ordem": int(new_device_order),
+                            "adc_full_scale_v": 4.096,
+                        }
+
+                        device_response = (
+                            supabase
+                            .table("dispositivos")
+                            .insert(device_payload)
+                            .select("device_id")
+                            .execute()
+                        )
+
+                        if not device_response.data:
+                            raise RuntimeError(
+                                "O Supabase não confirmou o cadastro do equipamento."
+                            )
+
+                        # ----------------------------------------
+                        # 3. Cria automaticamente AI001...AI008.
+                        # Começam desativadas e genéricas.
+                        # ----------------------------------------
+                        channel_rows = []
+
+                        for canal_num in range(1, 9):
+                            channel_rows.append({
+                                "device_id": device_id_value,
+                                "canal": canal_num,
+                                "nome_exibicao": (
+                                    f"AI{canal_num:03d}"
+                                ),
+                                "role": "generic",
+                                "modo": "linear_voltage",
+                                "unidade": "",
+                                "source_min": 0.0,
+                                "source_max": 3.0,
+                                "eng_min": 0.0,
+                                "eng_max": 100.0,
+                                "shunt_ohms": 150.0,
+                                "decimais": 2,
+                                "ativo": False,
+                                "alarme_min": None,
+                                "alarme_max": None,
+                                "tipo_entrada": "0–3 V",
+                                "shunt_150r": False,
+                            })
+
+                        (
+                            supabase
+                            .table("configuracao_analogica")
+                            .upsert(
+                                channel_rows,
+                                on_conflict="device_id,canal",
+                            )
+                            .execute()
+                        )
+
+                        load_devices.clear()
+                        load_channel_configs.clear()
+                        load_telemetry.clear()
+
+                        st.success(
+                            f"{device_name_value} cadastrado com sucesso."
+                        )
+
+                        st.info(
+                            "As AI001–AI008 foram criadas como inativas. "
+                            "Configure as entradas desejadas na seção abaixo. "
+                            "Depois, use o AXION Configurator para provisionar o "
+                            "token e calibrar a vibração."
+                        )
+
+                        st.session_state.device_id = device_id_value
+                        st.rerun()
 
                 except Exception as exc:
-                    st.error("Não foi possível cadastrar o equipamento.")
-                    st.exception(exc)
+                    st.error(
+                        "Não foi possível cadastrar o equipamento."
+                    )
+                    st.code(
+                        str(exc)
+                    )
 
 
     if devices.empty:
         st.info(
-            "A tabela dispositivos ainda não possui registros. "
-            "Crie o primeiro dispositivo no Supabase para habilitar esta tela."
+            "Nenhum equipamento cadastrado ainda. "
+            "Use 'Cadastrar novo equipamento' acima."
         )
     else:
         device_options = devices["device_id"].astype(str).tolist()
