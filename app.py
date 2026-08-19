@@ -1,7 +1,5 @@
 
 
-
-
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -322,14 +320,16 @@ def channel_prefix(canal):
 
 
 def channel_field(canal):
-    return f"{channel_prefix(canal)}_value"
+    # A telemetria atual grava os canais diretamente como ai001...ai016.
+    return channel_prefix(canal)
 
 
 def channel_display_name(config, canal):
     if not config:
         return canal
     return (
-        config.get("nome")
+        config.get("nome_exibicao")
+        or config.get("nome")
         or config.get("descricao")
         or canal
     )
@@ -341,12 +341,102 @@ def channel_unit(config, default=""):
     return config.get("unidade") or default
 
 
-def status_badge(status):
-    if status == "Online":
-        return "<span class='pill-online'>ONLINE</span>"
-    if status == "Alarme":
-        return "<span class='pill-alarm'>ALARME</span>"
-    return "<span class='pill-offline'>OFFLINE</span>"
+def raw_to_voltage(raw, full_scale_v=4.096):
+    raw = safe_float(raw)
+    fs = safe_float(full_scale_v, 4.096)
+    if not np.isfinite(raw) or not np.isfinite(fs) or fs <= 0:
+        return np.nan
+    # ADS1115 em faixa de ±full scale.
+    return raw * fs / 32767.0
+
+
+def engineering_value(raw, config, full_scale_v=4.096):
+    """
+    Converte a leitura RAW do ADS1115 para valor de engenharia conforme
+    configuracao_analogica.
+
+    Modos:
+      raw_voltage   -> retorna tensão
+      linear_voltage -> tensão source_min/source_max -> eng_min/eng_max
+      linear_raw     -> RAW source_min/source_max -> eng_min/eng_max
+      linear_4_20mA  -> tensão -> corrente pelo shunt -> eng_min/eng_max
+      disabled       -> NaN
+    """
+    if not config or not bool(config.get("ativo", True)):
+        return np.nan
+
+    modo = str(config.get("modo") or "raw_voltage").lower()
+
+    if modo == "disabled":
+        return np.nan
+
+    if modo == "raw_voltage":
+        return raw_to_voltage(raw, full_scale_v)
+
+    raw_value = safe_float(raw)
+    if not np.isfinite(raw_value):
+        return np.nan
+
+    source_min = safe_float(config.get("source_min"), 0.0)
+    source_max = safe_float(config.get("source_max"), 4.096)
+    eng_min = safe_float(config.get("eng_min"), 0.0)
+    eng_max = safe_float(config.get("eng_max"), 4.096)
+
+    if modo == "linear_raw":
+        if source_max == source_min:
+            return np.nan
+        ratio = (raw_value - source_min) / (source_max - source_min)
+        return eng_min + ratio * (eng_max - eng_min)
+
+    voltage = raw_to_voltage(raw_value, full_scale_v)
+    if not np.isfinite(voltage):
+        return np.nan
+
+    if modo == "linear_voltage":
+        if source_max == source_min:
+            return np.nan
+        ratio = (voltage - source_min) / (source_max - source_min)
+        return eng_min + ratio * (eng_max - eng_min)
+
+    if modo == "linear_4_20ma":
+        shunt = safe_float(config.get("shunt_ohms"), 150.0)
+        if not np.isfinite(shunt) or shunt <= 0:
+            return np.nan
+
+        current_ma = (voltage / shunt) * 1000.0
+
+        # Para transmissor 4-20 mA, a conversão é sempre 4...20 mA.
+        ratio = (current_ma - 4.0) / 16.0
+        return eng_min + ratio * (eng_max - eng_min)
+
+    return voltage
+
+
+def raw_display(raw, config, full_scale_v=4.096):
+    value = engineering_value(raw, config, full_scale_v)
+    if not np.isfinite(value):
+        return "—"
+
+    unit = channel_unit(config, "V")
+    decimals = int(safe_float(config.get("decimais"), 2)) if config else 2
+    decimals = max(0, min(4, decimals))
+    return format_value(value, decimals, unit)
+
+
+def pressure_bar_from_config(raw, config, full_scale_v=4.096):
+    value = engineering_value(raw, config, full_scale_v)
+    if not np.isfinite(value):
+        return np.nan
+
+    unit = str(channel_unit(config, "bar")).strip().lower()
+
+    if unit in ("mca", "m.c.a.", "metros"):
+        return value / MCA_PER_BAR
+
+    if unit in ("bar",):
+        return value
+
+    return np.nan
 
 
 def get_default_config():
@@ -365,15 +455,18 @@ def get_default_config():
 @st.cache_data(ttl=30)
 def load_devices():
     """
-    Estrutura esperada na tabela public.dispositivos:
-      device_id, nome, local, descricao, ativo, ordem
-    Colunas adicionais existentes são preservadas.
+    Lê os dispositivos do novo schema.
+    Compatível com nome_exibicao/local e também com os campos antigos nome/local.
     """
+    empty = pd.DataFrame(
+        columns=[
+            "device_id", "nome_exibicao", "nome", "local",
+            "descricao", "ativo", "ordem", "adc_full_scale_v"
+        ]
+    )
 
     if supabase is None:
-        return pd.DataFrame(columns=[
-            "device_id", "nome", "local", "descricao", "ativo", "ordem"
-        ])
+        return empty
 
     try:
         response = (
@@ -385,51 +478,75 @@ def load_devices():
 
         data = response.data or []
         if not data:
-            return pd.DataFrame(columns=[
-                "device_id", "nome", "local", "descricao", "ativo", "ordem"
-            ])
+            return empty
 
         df = pd.DataFrame(data)
 
-        defaults = {
-            "nome": None,
-            "local": "Sem local",
-            "descricao": None,
-            "ativo": True,
-            "ordem": 999,
-        }
-
-        for col, default in defaults.items():
-            if col not in df.columns:
-                df[col] = default
-
         if "device_id" not in df.columns:
-            return pd.DataFrame(columns=[
-                "device_id", "nome", "local", "descricao", "ativo", "ordem"
-            ])
+            return empty
+
+        if "nome_exibicao" not in df.columns:
+            df["nome_exibicao"] = None
+
+        if "nome" not in df.columns:
+            df["nome"] = None
+
+        if "local" not in df.columns:
+            df["local"] = "Sem local"
+
+        if "descricao" not in df.columns:
+            df["descricao"] = None
+
+        if "ativo" not in df.columns:
+            df["ativo"] = True
+
+        if "ordem" not in df.columns:
+            df["ordem"] = 999
+
+        if "adc_full_scale_v" not in df.columns:
+            df["adc_full_scale_v"] = 4.096
+
+        df["nome_exibicao"] = (
+            df["nome_exibicao"]
+            .fillna(df["nome"])
+            .fillna(df["device_id"])
+        )
+        df["nome"] = df["nome_exibicao"]
+
+        df["local"] = (
+            df["local"]
+            .fillna("Sem local")
+            .astype(str)
+            .replace("", "Sem local")
+        )
 
         df["ativo"] = df["ativo"].fillna(True).astype(bool)
         df["ordem"] = pd.to_numeric(df["ordem"], errors="coerce").fillna(999)
+        df["adc_full_scale_v"] = pd.to_numeric(
+            df["adc_full_scale_v"], errors="coerce"
+        ).fillna(4.096)
 
         return df
 
-    except Exception:
-        # Durante a transição, não impedir o dashboard de funcionar
-        # apenas porque a tabela dispositivos ainda não foi expandida.
-        return pd.DataFrame(columns=[
-            "device_id", "nome", "local", "descricao", "ativo", "ordem"
-        ])
+    except Exception as exc:
+        st.error("Erro ao carregar os dispositivos.")
+        st.exception(exc)
+        return empty
 
 
 @st.cache_data(ttl=30)
 def load_channel_configs():
+    """
+    Novo schema:
+      public.configuracao_analogica
+    """
     if supabase is None:
         return {}
 
     try:
         response = (
             supabase
-            .table("canais_analogicos")
+            .table("configuracao_analogica")
             .select("*")
             .execute()
         )
@@ -445,7 +562,9 @@ def load_channel_configs():
 
         return configs
 
-    except Exception:
+    except Exception as exc:
+        st.error("Erro ao carregar a configuração das entradas.")
+        st.exception(exc)
         return {}
 
 
@@ -487,18 +606,14 @@ def load_telemetry():
         "recebido_em",
         "ai001", "ai002", "ai003", "ai004",
         "ai005", "ai006", "ai007", "ai008",
-        "ai004_ma", "ai004_value",
-        "ai005_ma", "ai005_value",
-        "ai006_ma", "ai006_value",
-        "ai007_ma", "ai007_value",
-        "ai008_ma", "ai008_value",
         "x_mm_s", "x_rms",
         "y_mm_s", "y_rms",
         "z_mm_s", "z_rms",
+        "status"
     ]
 
     if supabase is None:
-        return pd.DataFrame(columns=columns + ["status"])
+        return pd.DataFrame(columns=columns)
 
     try:
         response = (
@@ -512,7 +627,7 @@ def load_telemetry():
 
         data = response.data or []
         if not data:
-            return pd.DataFrame(columns=columns + ["status"])
+            return pd.DataFrame(columns=columns)
 
         df = pd.DataFrame(data)
 
@@ -526,12 +641,21 @@ def load_telemetry():
             errors="coerce",
         )
 
-        # Última leitura por dispositivo para o dashboard.
         df = (
             df.sort_values("recebido_em", ascending=False)
             .drop_duplicates("device_id", keep="first")
             .reset_index(drop=True)
         )
+
+        configs = load_channel_configs()
+        devices = load_devices()
+
+        device_full_scale = {}
+        if not devices.empty:
+            for _, d in devices.iterrows():
+                device_full_scale[str(d["device_id"])] = safe_float(
+                    d.get("adc_full_scale_v"), 4.096
+                )
 
         global_config = load_global_config()
 
@@ -540,10 +664,19 @@ def load_telemetry():
             if age > OFFLINE_AFTER_SECONDS:
                 return "Offline"
 
-            # Pressão
-            p = safe_float(row.get("ai004_value"))
+            device_id = str(row.get("device_id", ""))
+            fs = device_full_scale.get(device_id, 4.096)
+
+            # Pressão configurada
+            pressure_cfg = configs.get((device_id, "AI004"), {})
+            pressure = pressure_bar_from_config(
+                row.get("ai004"),
+                pressure_cfg,
+                fs
+            )
             p_min = safe_float(global_config.get("limite_pressao"))
-            if np.isfinite(p) and np.isfinite(p_min) and p < p_min:
+
+            if np.isfinite(pressure) and np.isfinite(p_min) and pressure < p_min:
                 return "Alarme"
 
             # Vibração
@@ -558,23 +691,26 @@ def load_telemetry():
             if vibration and np.isfinite(v_limit) and max(vibration) > v_limit:
                 return "Alarme"
 
-            # Temperaturas configuradas
-            t6 = safe_float(row.get("ai006_value"))
-            t7 = safe_float(row.get("ai007_value"))
+            # Temperaturas por role configurada
+            for canal, default_limit_key in [
+                ("AI006", "limite_mancal"),
+                ("AI007", "limite_oleo"),
+            ]:
+                cfg = configs.get((device_id, canal), {})
+                role = str(cfg.get("role") or "").lower()
 
-            if (
-                np.isfinite(t6)
-                and np.isfinite(safe_float(global_config.get("limite_mancal")))
-                and t6 > safe_float(global_config.get("limite_mancal"))
-            ):
-                return "Alarme"
+                if role not in ("bearing_temp", "oil_temp"):
+                    continue
 
-            if (
-                np.isfinite(t7)
-                and np.isfinite(safe_float(global_config.get("limite_oleo")))
-                and t7 > safe_float(global_config.get("limite_oleo"))
-            ):
-                return "Alarme"
+                value = engineering_value(
+                    row.get(channel_field(canal)),
+                    cfg,
+                    fs,
+                )
+                limit = safe_float(global_config.get(default_limit_key))
+
+                if np.isfinite(value) and np.isfinite(limit) and value > limit:
+                    return "Alarme"
 
             return "Online"
 
@@ -585,7 +721,7 @@ def load_telemetry():
     except Exception as exc:
         st.error("Erro ao carregar a telemetria.")
         st.exception(exc)
-        return pd.DataFrame(columns=columns + ["status"])
+        return pd.DataFrame(columns=columns)
 
 
 def build_devices_view():
@@ -679,31 +815,48 @@ def load_history(device_id, days):
         df = pd.DataFrame(data)
 
         df["timestamp"] = pd.to_datetime(
-            df["recebido_em"], utc=True, errors="coerce"
+            df["recebido_em"],
+            utc=True,
+            errors="coerce"
         )
 
-        numeric_cols = [
-            "ai004_value",
-            "ai006_value",
-            "ai007_value",
-            "ai008_value",
-            "x_mm_s",
-            "y_mm_s",
-            "z_mm_s",
-            "x_rms",
-            "y_rms",
-            "z_rms",
-        ]
-
-        for col in numeric_cols:
+        for col in [
+            "ai001", "ai002", "ai003", "ai004",
+            "ai005", "ai006", "ai007", "ai008",
+            "x_mm_s", "y_mm_s", "z_mm_s",
+            "x_rms", "y_rms", "z_rms"
+        ]:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
 
-        df["pressao_mca"] = df["ai004_value"].apply(bar_to_mca)
+        configs = load_channel_configs()
+        devices = load_devices()
+
+        fs = 4.096
+        if not devices.empty:
+            d = devices[devices["device_id"].astype(str) == str(device_id)]
+            if not d.empty:
+                fs = safe_float(d.iloc[0].get("adc_full_scale_v"), 4.096)
+
+        pressure_cfg = configs.get((str(device_id), "AI004"), {})
+        df["pressao_bar"] = df["ai004"].apply(
+            lambda raw: pressure_bar_from_config(raw, pressure_cfg, fs)
+        )
+        df["pressao_mca"] = df["pressao_bar"] * MCA_PER_BAR
+
         df["vibra"] = df[["x_mm_s", "y_mm_s", "z_mm_s"]].max(
             axis=1,
             skipna=True,
         )
+
+        for canal in [f"AI{i:03d}" for i in range(1, 9)]:
+            cfg = configs.get((str(device_id), canal), {})
+            field = channel_field(canal)
+            eng_name = f"{field}_eng"
+
+            df[eng_name] = df[field].apply(
+                lambda raw, c=cfg: engineering_value(raw, c, fs)
+            )
 
         return df
 
@@ -724,17 +877,32 @@ def build_alarms(df):
         return pd.DataFrame()
 
     config = load_global_config()
+    channel_configs = load_channel_configs()
+    devices = load_devices()
 
     for _, row in df.iterrows():
-        device_id = row.get("device_id", "—")
+        device_id = str(row.get("device_id", "—"))
         when = row.get("recebido_em")
 
-        pressure = safe_float(row.get("ai004_value"))
+        fs = 4.096
+        if not devices.empty:
+            d = devices[devices["device_id"].astype(str) == device_id]
+            if not d.empty:
+                fs = safe_float(d.iloc[0].get("adc_full_scale_v"), 4.096)
+
+        pressure_cfg = channel_configs.get((device_id, "AI004"), {})
+        pressure = pressure_bar_from_config(
+            row.get("ai004"),
+            pressure_cfg,
+            fs
+        )
+
         p_limit = safe_float(config.get("limite_pressao"))
+
         if np.isfinite(pressure) and np.isfinite(p_limit) and pressure < p_limit:
             alarms.append({
                 "Equipamento": device_id,
-                "Grandeza": "Pressão",
+                "Grandeza": channel_display_name(pressure_cfg, "AI004"),
                 "Valor": pressure,
                 "Limite": p_limit,
                 "Unidade": "bar",
@@ -744,6 +912,7 @@ def build_alarms(df):
         v_limit = safe_float(config.get("limite_rms"))
         for axis in ["x", "y", "z"]:
             value = safe_float(row.get(f"{axis}_mm_s"))
+
             if np.isfinite(value) and np.isfinite(v_limit) and value > v_limit:
                 alarms.append({
                     "Equipamento": device_id,
@@ -751,6 +920,35 @@ def build_alarms(df):
                     "Valor": value,
                     "Limite": v_limit,
                     "Unidade": "mm/s RMS",
+                    "Data/Hora": when,
+                })
+
+        for canal, limit_key in [
+            ("AI006", "limite_mancal"),
+            ("AI007", "limite_oleo"),
+        ]:
+            cfg = channel_configs.get((device_id, canal), {})
+            role = str(cfg.get("role") or "").lower()
+
+            value = engineering_value(
+                row.get(channel_field(canal)),
+                cfg,
+                fs
+            )
+            limit = safe_float(config.get(limit_key))
+
+            if (
+                np.isfinite(value)
+                and np.isfinite(limit)
+                and value > limit
+                and role in ("bearing_temp", "oil_temp")
+            ):
+                alarms.append({
+                    "Equipamento": device_id,
+                    "Grandeza": channel_display_name(cfg, canal),
+                    "Valor": value,
+                    "Limite": limit,
+                    "Unidade": channel_unit(cfg, "°C"),
                     "Data/Hora": when,
                 })
 
@@ -802,9 +1000,16 @@ def health_score(row):
         return 0
 
     config = load_global_config()
+    configs = load_channel_configs()
+    devices = load_devices()
+
     score = 100
 
-    vibration = [safe_float(row.get(f"{a}_mm_s")) for a in ["x", "y", "z"]]
+    vibration = [
+        safe_float(row.get("x_mm_s")),
+        safe_float(row.get("y_mm_s")),
+        safe_float(row.get("z_mm_s")),
+    ]
     vibration = [v for v in vibration if np.isfinite(v)]
 
     vib_limit = safe_float(config.get("limite_rms"))
@@ -815,24 +1020,32 @@ def health_score(row):
         elif peak > vib_limit * 0.7:
             score -= 15
 
-    t6 = safe_float(row.get("ai006_value"))
-    t6_limit = safe_float(config.get("limite_mancal"))
-    if np.isfinite(t6) and np.isfinite(t6_limit):
-        if t6 > t6_limit:
-            score -= 20
-        elif t6 > t6_limit * 0.9:
-            score -= 10
+    device_id = str(row.get("device_id", ""))
+    fs = 4.096
+    if not devices.empty:
+        d = devices[devices["device_id"].astype(str) == device_id]
+        if not d.empty:
+            fs = safe_float(d.iloc[0].get("adc_full_scale_v"), 4.096)
 
-    t7 = safe_float(row.get("ai007_value"))
-    t7_limit = safe_float(config.get("limite_oleo"))
-    if np.isfinite(t7) and np.isfinite(t7_limit):
-        if t7 > t7_limit:
-            score -= 20
-        elif t7 > t7_limit * 0.9:
-            score -= 10
+    for canal, limit_key in [("AI006", "limite_mancal"), ("AI007", "limite_oleo")]:
+        cfg = configs.get((device_id, canal), {})
+        value = engineering_value(row.get(channel_field(canal)), cfg, fs)
+        limit = safe_float(config.get(limit_key))
 
-    pressure = safe_float(row.get("ai004_value"))
+        if np.isfinite(value) and np.isfinite(limit):
+            if value > limit:
+                score -= 20
+            elif value > limit * 0.9:
+                score -= 10
+
+    pressure_cfg = configs.get((device_id, "AI004"), {})
+    pressure = pressure_bar_from_config(
+        row.get("ai004"),
+        pressure_cfg,
+        fs,
+    )
     p_limit = safe_float(config.get("limite_pressao"))
+
     if np.isfinite(pressure) and np.isfinite(p_limit) and pressure < p_limit:
         score -= 25
 
@@ -858,7 +1071,7 @@ def update_channel(device_id, canal, payload):
     try:
         (
             supabase
-            .table("canais_analogicos")
+            .table("configuracao_analogica")
             .update(payload)
             .eq("device_id", device_id)
             .eq("canal", canal)
@@ -866,6 +1079,7 @@ def update_channel(device_id, canal, payload):
         )
 
         load_channel_configs.clear()
+        load_telemetry.clear()
         return True, None
 
     except Exception as exc:
@@ -886,6 +1100,7 @@ def update_device(device_id, payload):
         )
 
         load_devices.clear()
+        load_telemetry.clear()
         return True, None
 
     except Exception as exc:
@@ -910,20 +1125,73 @@ def generate_pdf(device_id, row, history):
     )
     story.append(Spacer(1, 0.25 * inch))
 
+    channel_configs = load_channel_configs()
+    devices = load_devices()
+
+    fs = 4.096
+    if not devices.empty:
+        d = devices[devices["device_id"].astype(str) == str(device_id)]
+        if not d.empty:
+            fs = safe_float(d.iloc[0].get("adc_full_scale_v"), 4.096)
+
+    pressure_cfg = channel_configs.get((str(device_id), "AI004"), {})
+    pressure_bar = pressure_bar_from_config(
+        row.get("ai004"),
+        pressure_cfg,
+        fs
+    )
+
     data = [
         ["Parâmetro", "Valor"],
         ["Status", str(row.get("status", "—"))],
-        ["Pressão", format_value(row.get("ai004_value"), 2, "bar")],
-        ["Pressão", format_value(bar_to_mca(row.get("ai004_value")), 2, "MCA")],
-        ["AI006", format_value(row.get("ai006_value"), 2, "°C")],
-        ["AI007", format_value(row.get("ai007_value"), 2, "°C")],
-        ["AI008", format_value(row.get("ai008_value"), 2, "°C")],
+        [
+            channel_display_name(pressure_cfg, "AI004"),
+            format_value(pressure_bar, 2, "bar")
+        ],
+        [
+            "Pressão",
+            format_value(
+                bar_to_mca(pressure_bar),
+                2,
+                "MCA"
+            )
+        ],
+        [
+            channel_display_name(
+                channel_configs.get((str(device_id), "AI006"), {}),
+                "AI006"
+            ),
+            raw_display(
+                row.get("ai006"),
+                channel_configs.get((str(device_id), "AI006"), {}),
+                fs
+            ),
+        ],
+        [
+            channel_display_name(
+                channel_configs.get((str(device_id), "AI007"), {}),
+                "AI007"
+            ),
+            raw_display(
+                row.get("ai007"),
+                channel_configs.get((str(device_id), "AI007"), {}),
+                fs
+            ),
+        ],
+        [
+            channel_display_name(
+                channel_configs.get((str(device_id), "AI008"), {}),
+                "AI008"
+            ),
+            raw_display(
+                row.get("ai008"),
+                channel_configs.get((str(device_id), "AI008"), {}),
+                fs
+            ),
+        ],
         ["Vibração X", format_value(row.get("x_mm_s"), 3, "mm/s RMS")],
         ["Vibração Y", format_value(row.get("y_mm_s"), 3, "mm/s RMS")],
         ["Vibração Z", format_value(row.get("z_mm_s"), 3, "mm/s RMS")],
-        ["RMS X", format_value(row.get("x_rms"), 5, "g RMS")],
-        ["RMS Y", format_value(row.get("y_rms"), 5, "g RMS")],
-        ["RMS Z", format_value(row.get("z_rms"), 5, "g RMS")],
     ]
 
     table = Table(data, colWidths=[3 * inch, 3 * inch])
@@ -984,7 +1252,7 @@ with top[0]:
             <div style="font-size:2rem;font-weight:850;">
                 AXION <span style="color:#3b82f6;">| Monitoramento Industrial</span>
             </div>
-            <div class="muted">Telemetria via HiveMQ → Supabase • Atualização automática: 30 s</div>
+            <div class="muted">Telemetria via HTTPS → Supabase • Atualização automática: 30 s</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1132,8 +1400,22 @@ if st.session_state.view == "dashboard":
                         score = health_score(row)
                         color = health_color(score)
 
-                        pressure = safe_float(row.get("ai004_value"))
-                        pressure_mca = bar_to_mca(pressure)
+                        device_fs = safe_float(
+                            row.get("adc_full_scale_v"),
+                            4.096
+                        )
+
+                        pressure_cfg = channel_configs.get((device_id, "AI004"), {})
+                        pressure_bar = pressure_bar_from_config(
+                            row.get("ai004"),
+                            pressure_cfg,
+                            device_fs,
+                        )
+                        pressure_mca = (
+                            bar_to_mca(pressure_bar)
+                            if np.isfinite(pressure_bar)
+                            else np.nan
+                        )
 
                         last = row.get("recebido_em")
                         last_text = (
@@ -1142,16 +1424,21 @@ if st.session_state.view == "dashboard":
                             else "sem leitura"
                         )
 
-                        def temp_metric(canal, fallback):
+                        def channel_metric(canal, default_unit):
                             cfg = channel_configs.get((device_id, canal), {})
                             label = channel_display_name(cfg, canal)
-                            value = row.get(channel_field(canal))
-                            unit = channel_unit(cfg, fallback)
-                            return label, format_value(value, 1, unit)
+                            value = engineering_value(
+                                row.get(channel_field(canal)),
+                                cfg,
+                                device_fs,
+                            )
+                            unit = channel_unit(cfg, default_unit)
+                            decimals = int(safe_float(cfg.get("decimais"), 2))
+                            return label, format_value(value, decimals, unit)
 
-                        temp6_label, temp6_value = temp_metric("AI006", "°C")
-                        temp7_label, temp7_value = temp_metric("AI007", "°C")
-                        temp8_label, temp8_value = temp_metric("AI008", "°C")
+                        temp6_label, temp6_value = channel_metric("AI006", "V")
+                        temp7_label, temp7_value = channel_metric("AI007", "V")
+                        temp8_label, temp8_value = channel_metric("AI008", "V")
 
                         vibration_values = [
                             safe_float(row.get("x_mm_s")),
@@ -1163,9 +1450,16 @@ if st.session_state.view == "dashboard":
                         ]
                         vibration_max = max(vibration_values) if vibration_values else np.nan
 
-                        # Pressão é exibida em bar e MCA.
-                        pressure_text = format_value(pressure, 2, "bar")
-                        mca_text = format_value(pressure_mca, 1, "MCA")
+                        pressure_text = (
+                            format_value(pressure_bar, 2, "bar")
+                            if np.isfinite(pressure_bar)
+                            else "—"
+                        )
+                        mca_text = (
+                            format_value(pressure_mca, 1, "MCA")
+                            if np.isfinite(pressure_mca)
+                            else "—"
+                        )
 
                         # Renderização nativa do Streamlit.
                         # Evitamos HTML livre dentro do cartão para impedir
@@ -1325,18 +1619,31 @@ elif st.session_state.view == "details":
                 unsafe_allow_html=True,
             )
 
+            device_fs = safe_float(row.get("adc_full_scale_v"), 4.096)
+            pressure_cfg = channel_configs.get((selected, "AI004"), {})
+            pressure_bar = pressure_bar_from_config(
+                row.get("ai004"),
+                pressure_cfg,
+                device_fs,
+            )
+            pressure_mca = (
+                bar_to_mca(pressure_bar)
+                if np.isfinite(pressure_bar)
+                else np.nan
+            )
+
             c1, c2, c3, c4 = st.columns(4)
 
             with c1:
                 st.metric(
-                    "Pressão",
-                    format_value(row.get("ai004_value"), 2, "bar"),
+                    channel_display_name(pressure_cfg, "AI004"),
+                    format_value(pressure_bar, 2, "bar"),
                 )
 
             with c2:
                 st.metric(
                     "Pressão",
-                    format_value(bar_to_mca(row.get("ai004_value")), 1, "MCA"),
+                    format_value(pressure_mca, 1, "MCA"),
                 )
 
             with c3:
@@ -1408,7 +1715,7 @@ elif st.session_state.view == "details":
                 st.plotly_chart(
                     line_chart(
                         history,
-                        ["ai006_value", "ai007_value", "ai008_value"],
+                        ["ai006_eng", "ai007_eng", "ai008_eng"],
                         [
                             channel_display_name(
                                 channel_configs.get((selected, "AI006"), {}),
@@ -1423,8 +1730,8 @@ elif st.session_state.view == "details":
                                 "AI008",
                             ),
                         ],
-                        "Temperaturas",
-                        "°C",
+                        "Entradas configuradas",
+                        "Engenharia",
                     ),
                     use_container_width=True,
                 )
@@ -1495,11 +1802,12 @@ elif st.session_state.view == "config":
                         .table("dispositivos")
                         .insert({
                             "device_id": new_device_id.strip(),
-                            "nome": new_device_name.strip() or new_device_id.strip(),
+                            "nome_exibicao": new_device_name.strip() or new_device_id.strip(),
                             "local": new_device_location,
                             "descricao": new_device_description.strip() or None,
                             "ativo": new_device_active,
                             "ordem": int(new_device_order),
+                            "adc_full_scale_v": 4.096,
                         })
                         .execute()
                     )
@@ -1533,7 +1841,11 @@ elif st.session_state.view == "config":
         with st.form("device_form"):
             name = st.text_input(
                 "Nome exibido",
-                value=str(device_row.get("nome") or selected_device),
+                value=str(
+                    device_row.get("nome_exibicao")
+                    or device_row.get("nome")
+                    or selected_device
+                ),
             )
 
             location = st.text_input(
@@ -1559,6 +1871,16 @@ elif st.session_state.view == "config":
                 value=bool(device_row.get("ativo", True)),
             )
 
+            adc_full_scale = st.number_input(
+                "ADS1115 Full Scale (V)",
+                min_value=0.256,
+                max_value=6.144,
+                value=float(
+                    safe_float(device_row.get("adc_full_scale_v"), 4.096)
+                ),
+                step=0.256,
+            )
+
             save_device = st.form_submit_button(
                 "Salvar equipamento",
                 type="primary",
@@ -1568,11 +1890,12 @@ elif st.session_state.view == "config":
             ok, error = update_device(
                 selected_device,
                 {
-                    "nome": name.strip() or selected_device,
+                    "nome_exibicao": name.strip() or selected_device,
                     "local": location.strip() or "Sem local",
                     "descricao": description.strip() or None,
                     "ordem": int(order),
                     "ativo": active,
+                    "adc_full_scale_v": float(adc_full_scale),
                 },
             )
 
@@ -1589,6 +1912,11 @@ elif st.session_state.view == "config":
         st.markdown("---")
         st.markdown("### Entradas analógicas")
 
+        st.caption(
+            "As entradas são configuradas por dispositivo. O AXION envia apenas "
+            "o RAW do ADS1115; a escala, unidade e função são definidas aqui."
+        )
+
         for canal_num in range(1, 9):
             canal = f"AI{canal_num:03d}"
             cfg = channel_configs.get((selected_device, canal), {})
@@ -1602,51 +1930,118 @@ elif st.session_state.view == "config":
                     channel_name = st.text_input(
                         "Nome exibido",
                         value=str(
-                            cfg.get("nome")
-                            or cfg.get("descricao")
+                            cfg.get("nome_exibicao")
+                            or cfg.get("nome")
                             or canal
                         ),
                     )
 
-                    st.text_input(
-                        "Tipo do sensor",
-                        value=str(cfg.get("tipo_sensor") or "—"),
-                        disabled=True,
+                    role_options = {
+                        "generic": "Genérico",
+                        "pressure": "Pressão",
+                        "bearing_temp": "Temperatura Mancal",
+                        "oil_temp": "Temperatura Óleo",
+                        "aux_temp": "Temperatura 3",
+                    }
+
+                    current_role = str(cfg.get("role") or "generic")
+                    if current_role not in role_options:
+                        current_role = "generic"
+
+                    role = st.selectbox(
+                        "Função",
+                        list(role_options.keys()),
+                        index=list(role_options.keys()).index(current_role),
+                        format_func=lambda value: role_options[value],
                     )
 
-                    st.text_input(
-                        "Entrada física",
-                        value=str(cfg.get("entrada_tipo") or "—"),
-                        disabled=True,
+                    mode_options = {
+                        "raw_voltage": "RAW → Volts",
+                        "linear_voltage": "Volts → escala linear",
+                        "linear_raw": "RAW → escala linear",
+                        "linear_4_20ma": "4-20 mA → escala de engenharia",
+                        "disabled": "Desativada",
+                    }
+
+                    current_mode = str(cfg.get("modo") or "raw_voltage")
+                    if current_mode not in mode_options:
+                        current_mode = "raw_voltage"
+
+                    mode = st.selectbox(
+                        "Conversão",
+                        list(mode_options.keys()),
+                        index=list(mode_options.keys()).index(current_mode),
+                        format_func=lambda value: mode_options[value],
                     )
 
                     channel_unit_value = st.text_input(
                         "Unidade",
-                        value=str(cfg.get("unidade") or ""),
+                        value=str(cfg.get("unidade") or "V"),
                     )
 
                     active_channel = st.checkbox(
                         "Entrada ativa",
-                        value=bool(cfg.get("ativo", False)),
+                        value=bool(cfg.get("ativo", True)),
                     )
 
-                    if str(cfg.get("entrada_tipo", "")).lower() == "4-20ma":
-                        scale_min = st.number_input(
-                            "Escala mínima",
-                            value=float(
-                                safe_float(cfg.get("escala_min"), 0)
-                            ),
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        source_min = st.number_input(
+                            "Entrada mínima",
+                            value=float(safe_float(cfg.get("source_min"), 0)),
                         )
 
-                        scale_max = st.number_input(
-                            "Escala máxima",
-                            value=float(
-                                safe_float(cfg.get("escala_max"), 100)
-                            ),
+                    with c2:
+                        source_max = st.number_input(
+                            "Entrada máxima",
+                            value=float(safe_float(cfg.get("source_max"), 4.096)),
                         )
-                    else:
-                        scale_min = cfg.get("escala_min")
-                        scale_max = cfg.get("escala_max")
+
+                    c3, c4 = st.columns(2)
+
+                    with c3:
+                        eng_min = st.number_input(
+                            "Engenharia mínima",
+                            value=float(safe_float(cfg.get("eng_min"), 0)),
+                        )
+
+                    with c4:
+                        eng_max = st.number_input(
+                            "Engenharia máxima",
+                            value=float(safe_float(cfg.get("eng_max"), 4.096)),
+                        )
+
+                    c5, c6 = st.columns(2)
+
+                    with c5:
+                        shunt_ohms = st.number_input(
+                            "Resistor shunt (Ω)",
+                            min_value=1.0,
+                            value=float(safe_float(cfg.get("shunt_ohms"), 150)),
+                            disabled=mode != "linear_4_20ma",
+                        )
+
+                    with c6:
+                        decimals = st.number_input(
+                            "Casas decimais",
+                            min_value=0,
+                            max_value=4,
+                            value=int(safe_float(cfg.get("decimais"), 2)),
+                            step=1,
+                        )
+
+                    a1, a2 = st.columns(2)
+                    with a1:
+                        alarm_min = st.number_input(
+                            "Alarme mínimo",
+                            value=float(safe_float(cfg.get("alarme_min"), 0)),
+                        )
+                    with a2:
+                        alarm_max = st.number_input(
+                            "Alarme máximo",
+                            value=float(safe_float(cfg.get("alarme_max"), 0)),
+                        )
 
                     save_channel = st.form_submit_button(
                         "Salvar entrada",
@@ -1655,14 +2050,20 @@ elif st.session_state.view == "config":
 
                 if save_channel:
                     payload = {
-                        "nome": channel_name.strip() or canal,
-                        "unidade": channel_unit_value.strip() or None,
+                        "nome_exibicao": channel_name.strip() or canal,
+                        "role": role,
+                        "modo": mode,
+                        "unidade": channel_unit_value.strip() or "V",
+                        "source_min": float(source_min),
+                        "source_max": float(source_max),
+                        "eng_min": float(eng_min),
+                        "eng_max": float(eng_max),
+                        "shunt_ohms": float(shunt_ohms),
+                        "decimais": int(decimals),
                         "ativo": active_channel,
+                        "alarme_min": float(alarm_min),
+                        "alarme_max": float(alarm_max),
                     }
-
-                    if str(cfg.get("entrada_tipo", "")).lower() == "4-20ma":
-                        payload["escala_min"] = float(scale_min)
-                        payload["escala_max"] = float(scale_max)
 
                     ok, error = update_channel(
                         selected_device,
@@ -1675,8 +2076,7 @@ elif st.session_state.view == "config":
                         st.rerun()
                     else:
                         st.error(
-                            f"Não foi possível salvar {canal}. "
-                            "Verifique as políticas RLS da tabela canais_analogicos."
+                            f"Não foi possível salvar {canal}."
                         )
                         st.code(error or "Erro desconhecido")
 
@@ -1701,7 +2101,7 @@ elif st.session_state.view == "config":
             )
 
             mancal_limit = st.number_input(
-                "Limite AI006 (°C)",
+                "Limite temperatura mancal (°C)",
                 value=float(
                     safe_float(load_global_config().get("limite_mancal"), 75.0)
                 ),
@@ -1709,7 +2109,7 @@ elif st.session_state.view == "config":
             )
 
             oil_limit = st.number_input(
-                "Limite AI007 (°C)",
+                "Limite temperatura óleo (°C)",
                 value=float(
                     safe_float(load_global_config().get("limite_oleo"), 80.0)
                 ),
