@@ -1,7 +1,6 @@
 
 
 
-
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -96,24 +95,29 @@ st.markdown(
     """
     <style>
         :root {
-            --bg: #0b1020;
-            --card: #1d2740;
-            --card2: #162038;
-            --border: #475569;
-            --border-strong: #64748b;
+            --bg: #080c16;
+            --surface: #111827;
+            --surface-2: #151f33;
+            --surface-3: #0d1422;
+            --border: #27364d;
+            --border-soft: rgba(148,163,184,.16);
+
             --text: #f8fafc;
-            --text-strong: #ffffff;
-            --muted: #d1d5db;
-            --muted-strong: #e2e8f0;
-            --blue: #1d4ed8;
-            --blue-dark: #1e3a8a;
-            --green: #047857;
-            --green-bg: #d1fae5;
-            --yellow: #b45309;
-            --yellow-bg: #fef3c7;
-            --red: #b91c1c;
-            --red-bg: #fee2e2;
-            --cyan: #0369a1;
+            --muted: #94a3b8;
+            --muted-2: #64748b;
+
+            --blue: #4f7cff;
+            --blue-2: #3b82f6;
+            --blue-soft: rgba(79,124,255,.12);
+
+            --green: #19c37d;
+            --green-soft: rgba(25,195,125,.12);
+
+            --amber: #f5b942;
+            --amber-soft: rgba(245,185,66,.12);
+
+            --red: #ff5c64;
+            --red-soft: rgba(255,92,100,.12);
         }
 
         * {
@@ -122,8 +126,9 @@ st.markdown(
 
         .stApp {
             background:
-                radial-gradient(circle at top right, rgba(59,130,246,.12), transparent 35%),
-                linear-gradient(135deg, #0b1020 0%, #070b14 100%);
+                radial-gradient(circle at 15% 0%, rgba(79,124,255,.08), transparent 28%),
+                radial-gradient(circle at 100% 0%, rgba(25,195,125,.05), transparent 24%),
+                var(--bg);
             color: var(--text);
         }
 
@@ -139,47 +144,69 @@ st.markdown(
         }
 
         .block-container {
-            max-width: 1600px;
-            padding-top: 1rem;
-            padding-bottom: 2rem;
+            max-width: 1500px;
+            padding: .85rem 1.1rem 2rem;
         }
 
-        /* ---------------- Buttons ---------------- */
+        /* ---------------- Navigation ---------------- */
+
+        .top-card {
+            background: linear-gradient(180deg, #121b2c 0%, #0f1726 100%);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: .85rem 1rem;
+            box-shadow: 0 8px 30px rgba(0,0,0,.14);
+        }
+
+        .brand-title {
+            font-size: 1.35rem;
+            font-weight: 900;
+            letter-spacing: -.02em;
+            color: #f8fafc;
+            line-height: 1.1;
+        }
+
+        .brand-accent {
+            color: #79a0ff;
+        }
+
+        .brand-sub {
+            margin-top: .35rem;
+            color: #94a3b8;
+            font-size: .73rem;
+            font-weight: 600;
+        }
 
         div.stButton > button {
             width: 100%;
-            min-height: 46px;
+            min-height: 44px;
             border-radius: 10px;
-            border: 1px solid #64748b;
-            background: #1e293b;
-            color: #f8fafc;
+            border: 1px solid #33445e;
+            background: #111a2b;
+            color: #dbe7f5;
             font-weight: 750;
-            font-size: 0.95rem;
-            box-shadow: 0 2px 7px rgba(15,23,42,.08);
+            font-size: .82rem;
+            box-shadow: none;
+            transition: .15s ease;
         }
 
         div.stButton > button:hover {
-            border-color: #60a5fa;
-            background: #263650;
+            border-color: #587cff;
+            background: #182540;
             color: #ffffff;
-        }
-
-        div.stButton > button:focus {
-            border-color: #60a5fa;
-            box-shadow: 0 0 0 3px rgba(59,130,246,.25);
-            color: #ffffff;
+            transform: translateY(-1px);
         }
 
         div.stButton > button[kind="primary"] {
-            background: #2563eb;
-            border-color: #1d4ed8;
+            background: linear-gradient(180deg, #4f7cff 0%, #3f67e8 100%);
+            border-color: #5f88ff;
             color: #ffffff;
+            box-shadow: 0 6px 18px rgba(79,124,255,.22);
         }
 
         div.stButton > button[kind="primary"]:hover {
-            background: #1d4ed8;
-            border-color: #1e40af;
-            color: #ffffff;
+            background: linear-gradient(180deg, #5b84ff 0%, #466ff3 100%);
+            border-color: #79a0ff;
         }
 
         div.stButton > button p {
@@ -187,153 +214,200 @@ st.markdown(
             font-weight: 750 !important;
         }
 
-        /* ---------------- Header / cards ---------------- */
+        /* ---------------- Page rhythm ---------------- */
 
-        .top-card {
-            background: linear-gradient(135deg, #1d2740 0%, #151d31 100%);
-            border: 1px solid #475569;
-            border-radius: 18px;
-            padding: 1.25rem 1.5rem;
-            margin-bottom: 1rem;
-            box-shadow: 0 7px 22px rgba(15,23,42,.06);
+        h1, h2, h3 {
+            color: #f8fafc !important;
+            letter-spacing: -.02em;
         }
-
-        .device-card {
-            background: linear-gradient(135deg, #1e293b 0%, #172033 100%);
-            border: 1px solid #475569;
-            border-radius: 16px;
-            padding: 1rem;
-            min-height: 360px;
-            box-shadow: 0 7px 20px rgba(15,23,42,.07);
-        }
-
-        .device-card:hover {
-            border-color: #60a5fa;
-            box-shadow: 0 9px 24px rgba(37,99,235,.10);
-        }
-
-        .metric {
-            background: rgba(15,23,42,.52);
-            border: 1px solid rgba(148,163,184,.24);
-            border-radius: 10px;
-            padding: .7rem;
-            min-height: 74px;
-        }
-
-        .metric-title {
-            color: #e2e8f0;
-            font-size: .74rem;
-            text-transform: uppercase;
-            letter-spacing: .35px;
-            font-weight: 700;
-        }
-
-        .metric-value {
-            color: #ffffff;
-            font-size: 1.2rem;
-            font-weight: 850;
-            margin-top: .25rem;
-        }
-
-        .location-title {
-            margin-top: 1rem;
-            margin-bottom: .6rem;
-            font-size: 1.1rem;
-            font-weight: 850;
-            color: #f8fafc;
-        }
-
-        .kpi {
-            background: #1e293b;
-            border: 1px solid #475569;
-            border-radius: 14px;
-            padding: 1rem;
-            text-align: center;
-            box-shadow: 0 4px 14px rgba(15,23,42,.05);
-        }
-
-        .kpi-value {
-            font-size: 1.95rem;
-            font-weight: 900;
-            line-height: 1.1;
-            color: #ffffff;
-        }
-
-        .muted {
-            color: #cbd5e1 !important;
-            font-size: .84rem;
-            font-weight: 500;
-        }
-
-        .small {
-            color: #cbd5e1 !important;
-            font-size: .76rem;
-            font-weight: 700;
-        }
-
-        /* ---------------- Status ---------------- */
-
-        .pill-online {
-            display: inline-block;
-            padding: .32rem .62rem;
-            border-radius: 999px;
-            background: rgba(16,185,129,.16);
-            color: #34d399;
-            border: 1px solid rgba(16,185,129,.35);
-            font-weight: 800;
-            font-size: .74rem;
-        }
-
-        .pill-offline {
-            display: inline-block;
-            padding: .32rem .62rem;
-            border-radius: 999px;
-            background: rgba(100,116,139,.16);
-            color: #e2e8f0;
-            border: 1px solid rgba(148,163,184,.32);
-            font-weight: 800;
-            font-size: .74rem;
-        }
-
-        .pill-alarm {
-            display: inline-block;
-            padding: .32rem .62rem;
-            border-radius: 999px;
-            background: rgba(239,68,68,.16);
-            color: #f87171;
-            border: 1px solid rgba(239,68,68,.35);
-            font-weight: 850;
-            font-size: .74rem;
-        }
-
-        /* ---------------- Streamlit native text / inputs ---------------- */
 
         [data-testid="stHeader"] {
             display: none;
         }
 
+        .page-kicker {
+            color: #64748b;
+            font-size: .72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: .11em;
+        }
+
+        .page-title {
+            color: #f8fafc;
+            font-size: 1.65rem;
+            font-weight: 900;
+            margin-top: .15rem;
+            margin-bottom: .65rem;
+            letter-spacing: -.03em;
+        }
+
+        .muted {
+            color: #a8b4c7 !important;
+            font-size: .78rem;
+            font-weight: 600;
+        }
+
+        .small {
+            color: #94a3b8 !important;
+            font-size: .72rem;
+            font-weight: 700;
+        }
+
+        /* ---------------- KPI cards ---------------- */
+
+        .kpi {
+            background: linear-gradient(180deg, #111a2b 0%, #0f1725 100%);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: .9rem 1rem;
+            min-height: 92px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.10);
+        }
+
+        .kpi-top {
+            color: #94a3b8;
+            font-size: .67rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: .1em;
+        }
+
+        .kpi-value {
+            margin-top: .22rem;
+            color: #ffffff;
+            font-size: 1.8rem;
+            line-height: 1;
+            font-weight: 900;
+        }
+
+        .kpi-green {
+            color: var(--green) !important;
+        }
+
+        .kpi-red {
+            color: var(--red) !important;
+        }
+
+        /* ---------------- Location ---------------- */
+
+        .location-title {
+            margin-top: 1.25rem;
+            margin-bottom: .65rem;
+            padding-left: .15rem;
+            color: #dbe7f5;
+            font-size: .86rem;
+            font-weight: 850;
+            letter-spacing: .01em;
+        }
+
+        .location-title::before {
+            content: "";
+            display: inline-block;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #4f7cff;
+            margin-right: 8px;
+            box-shadow: 0 0 12px rgba(79,124,255,.55);
+            vertical-align: middle;
+        }
+
+        /* ---------------- Device card ---------------- */
+
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            background: linear-gradient(180deg, #111a2b 0%, #0e1624 100%);
+            border-color: var(--border) !important;
+            border-radius: 16px !important;
+            box-shadow: 0 10px 32px rgba(0,0,0,.13);
+        }
+
+        [data-testid="stVerticalBlockBorderWrapper"]:hover {
+            border-color: #36517c !important;
+        }
+
+        .device-name {
+            color: #ffffff;
+            font-size: 1.18rem;
+            font-weight: 900;
+            letter-spacing: -.02em;
+        }
+
+        .device-meta {
+            color: #7f91aa;
+            font-size: .73rem;
+            font-weight: 700;
+            margin-top: .15rem;
+        }
+
+        .card-separator {
+            height: 1px;
+            background: linear-gradient(90deg, rgba(79,124,255,.35), rgba(148,163,184,.08));
+            margin: .75rem 0 .9rem;
+        }
+
+        /* ---------------- Status ---------------- */
+
+        .pill-online,
+        .pill-offline,
+        .pill-alarm {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: .34rem .62rem;
+            border-radius: 999px;
+            font-weight: 850;
+            font-size: .68rem;
+            letter-spacing: .04em;
+        }
+
+        .pill-online {
+            color: #44e09a;
+            background: var(--green-soft);
+            border: 1px solid rgba(25,195,125,.30);
+        }
+
+        .pill-offline {
+            color: #cbd5e1;
+            background: rgba(100,116,139,.12);
+            border: 1px solid rgba(148,163,184,.22);
+        }
+
+        .pill-alarm {
+            color: #ff858b;
+            background: var(--red-soft);
+            border: 1px solid rgba(255,92,100,.28);
+        }
+
         [data-testid="stMetricLabel"] {
-            color: #e2e8f0 !important;
-            font-weight: 750 !important;
+            color: #8fa0b8 !important;
+            font-size: .68rem !important;
+            font-weight: 800 !important;
+            letter-spacing: .03em !important;
         }
 
         [data-testid="stMetricValue"] {
             color: #ffffff !important;
+            font-size: 1.12rem !important;
             font-weight: 900 !important;
+            letter-spacing: -.02em;
         }
 
         [data-testid="stMetricDelta"] {
-            color: #cbd5e1 !important;
+            color: #94a3b8 !important;
             font-weight: 700 !important;
+            font-size: .68rem !important;
         }
+
+        /* ---------------- Forms / inputs ---------------- */
 
         div[data-baseweb="select"] > div,
         div[data-baseweb="input"] > div,
         textarea,
         input {
-            background: #162038 !important;
+            background: #121c2e !important;
             color: #f8fafc !important;
-            border-color: #64748b !important;
+            border-color: #344760 !important;
         }
 
         div[data-baseweb="select"] span,
@@ -341,140 +415,95 @@ st.markdown(
             color: #f8fafc !important;
         }
 
-        [data-testid="stExpander"] {
-            border: 1px solid #475569;
-            border-radius: 12px;
-            background: #162038;
-        }
-
-        [data-testid="stExpander"] summary {
-            color: #f8fafc !important;
-            font-weight: 750 !important;
-        }
-
-
-        /* ---------------- Configuration forms ---------------- */
-
-        [data-testid="stForm"] {
-            color: #f8fafc !important;
-        }
-
         [data-testid="stForm"] label,
         [data-testid="stForm"] label p,
         [data-testid="stForm"] label span {
-            color: #e2e8f0 !important;
-            font-weight: 700 !important;
+            color: #d9e2ef !important;
+            font-weight: 750 !important;
         }
 
         [data-testid="stForm"] input,
         [data-testid="stForm"] textarea {
             color: #ffffff !important;
-            background: #162038 !important;
+            background: #121c2e !important;
             -webkit-text-fill-color: #ffffff !important;
-            border-color: #94a3b8 !important;
-            opacity: 1 !important;
+            border-color: #51637b !important;
         }
 
-        [data-testid="stForm"] input::placeholder,
-        [data-testid="stForm"] textarea::placeholder {
-            color: #94a3b8 !important;
-            -webkit-text-fill-color: #94a3b8 !important;
-            opacity: 1 !important;
-        }
-
-        /* Campos somente leitura / desabilitados */
         [data-testid="stForm"] input:disabled,
         [data-testid="stForm"] textarea:disabled {
-            color: #cbd5e1 !important;
-            -webkit-text-fill-color: #cbd5e1 !important;
-            background: #111a2e !important;
-            border-color: #64748b !important;
+            color: #aab7c9 !important;
+            -webkit-text-fill-color: #aab7c9 !important;
+            background: #0d1522 !important;
+            border-color: #33445e !important;
             opacity: 1 !important;
         }
 
-        [data-testid="stForm"] [data-baseweb="select"] > div {
-            background: #162038 !important;
-            border-color: #94a3b8 !important;
+        [data-testid="stExpander"] {
+            border: 1px solid #2b3b53;
+            border-radius: 12px;
+            background: #10192a;
         }
 
-        [data-testid="stForm"] [data-baseweb="select"] span,
-        [data-testid="stForm"] [data-baseweb="select"] input {
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
+        [data-testid="stExpander"] summary {
+            color: #f3f7fb !important;
+            font-weight: 800 !important;
         }
 
-        [data-testid="stForm"] [data-testid="stCheckbox"] label,
-        [data-testid="stForm"] [data-testid="stCheckbox"] label p {
-            color: #f8fafc !important;
-            font-weight: 750 !important;
+        /* ---------------- Download / alerts ---------------- */
+
+        [data-testid="stDownloadButton"] button {
+            border-radius: 10px !important;
+            background: linear-gradient(180deg, #4f7cff 0%, #3f67e8 100%) !important;
+            border: 1px solid #5f88ff !important;
+            color: #fff !important;
+            font-weight: 800 !important;
         }
 
-        [data-testid="stForm"] button {
-            color: #ffffff !important;
-            background: #2563eb !important;
-            border-color: #3b82f6 !important;
+        [data-testid="stAlert"] {
+            border-radius: 12px !important;
+            border: 1px solid #2b3b53 !important;
         }
 
-        [data-testid="stForm"] button:hover {
-            background: #1d4ed8 !important;
-            border-color: #60a5fa !important;
-        }
-
-        /* Títulos/descrições dentro da configuração */
-        [data-testid="stExpander"] p,
-        [data-testid="stExpander"] small {
-            color: #cbd5e1 !important;
-        }
-
-        /* ---------------- Responsive / mobile ---------------- */
+        /* ---------------- Mobile ---------------- */
 
         @media (max-width: 900px) {
             .block-container {
-                padding: .65rem .65rem 1.25rem .65rem;
+                padding: .65rem .65rem 1.3rem;
             }
 
             .top-card {
-                padding: 1rem;
-                border-radius: 14px;
+                padding: .8rem .9rem;
             }
 
-            .top-card div[style*="font-size:2rem"] {
-                font-size: 1.45rem !important;
+            .brand-title {
+                font-size: 1.12rem;
             }
 
-            .device-card {
-                min-height: 0;
-                padding: .85rem;
-                border-radius: 14px;
+            .brand-sub {
+                font-size: .68rem;
             }
 
-            .location-title {
-                font-size: 1rem;
-                margin-top: .75rem;
+            .page-title {
+                font-size: 1.35rem;
             }
 
-            .metric-value,
-            [data-testid="stMetricValue"] {
-                font-size: 1.08rem !important;
-            }
-
-            [data-testid="stMetricLabel"] {
-                font-size: .78rem !important;
+            .kpi {
+                min-height: 82px;
+                padding: .75rem .8rem;
             }
 
             .kpi-value {
-                font-size: 1.6rem;
+                font-size: 1.45rem;
+            }
+
+            [data-testid="stMetricValue"] {
+                font-size: 1.0rem !important;
             }
 
             div.stButton > button {
-                min-height: 48px;
-                font-size: .92rem;
-            }
-        }
-
-        @media (min-width: 901px) {
-            [data-testid="stMetricValue"] {
-                font-size: 1.35rem !important;
+                min-height: 46px;
+                font-size: .78rem;
             }
         }
     </style>
@@ -2180,10 +2209,12 @@ with top[0]:
     st.markdown(
         """
         <div class="top-card">
-            <div style="font-size:2rem;font-weight:850;">
-                AXION <span style="color:#3b82f6;">| Monitoramento Industrial</span>
+            <div class="brand-title">
+                AXION <span class="brand-accent">| Monitoramento Industrial</span>
             </div>
-            <div class="muted">Telemetria via HTTPS → Supabase • Atualização automática: 30 s</div>
+            <div class="brand-sub">
+                Telemetria HTTPS • Supabase • Atualização automática 30 s
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2271,7 +2302,7 @@ if st.session_state.view == "dashboard":
             st.markdown(
                 f"""
                 <div class="kpi">
-                    <div class="small">DISPOSITIVOS</div>
+                    <div class="kpi-top">Dispositivos</div>
                     <div class="kpi-value">{total}</div>
                 </div>
                 """,
@@ -2282,8 +2313,8 @@ if st.session_state.view == "dashboard":
             st.markdown(
                 f"""
                 <div class="kpi">
-                    <div class="small">ONLINE</div>
-                    <div class="kpi-value" style="color:#10b981;">{online}</div>
+                    <div class="kpi-top">Online</div>
+                    <div class="kpi-value kpi-green">{online}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2293,8 +2324,8 @@ if st.session_state.view == "dashboard":
             st.markdown(
                 f"""
                 <div class="kpi">
-                    <div class="small">ALARMES</div>
-                    <div class="kpi-value" style="color:#ef4444;">{alarms}</div>
+                    <div class="kpi-top">Alarmes</div>
+                    <div class="kpi-value kpi-red">{alarms}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2485,9 +2516,18 @@ if st.session_state.view == "dashboard":
                             header_left, header_right = st.columns([3, 1])
 
                             with header_left:
-                                st.caption(str(location))
-                                st.subheader(name)
-                                st.caption(device_id)
+                                st.markdown(
+                                    f"<div class='device-meta'>{location}</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                st.markdown(
+                                    f"<div class='device-name'>{name}</div>",
+                                    unsafe_allow_html=True,
+                                )
+                                st.markdown(
+                                    f"<div class='device-meta'>{device_id}</div>",
+                                    unsafe_allow_html=True,
+                                )
 
                             with header_right:
                                 status = str(row.get("status", "Offline"))
