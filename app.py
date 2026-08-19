@@ -1,7 +1,5 @@
 
 
-
-
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -1456,17 +1454,32 @@ def update_channel(device_id, canal, payload):
         return False, "Supabase indisponível."
 
     try:
+        # A interface usa AI001 ... AI016.
+        # O banco armazena somente o número do canal (1 ... 16).
+        canal_text = str(canal).strip().upper()
+
+        if canal_text.startswith("AI"):
+            canal_db = int(canal_text[2:])
+        else:
+            canal_db = int(canal_text)
+
+        if canal_db < 1 or canal_db > 16:
+            return False, f"Canal inválido: {canal}"
+
         (
             supabase
             .table("configuracao_analogica")
             .update(payload)
             .eq("device_id", device_id)
-            .eq("canal", canal)
+            .eq("canal", canal_db)
             .execute()
         )
 
         load_channel_configs.clear()
         return True, None
+
+    except ValueError:
+        return False, f"Canal inválido: {canal}"
 
     except Exception as exc:
         return False, str(exc)
