@@ -1,3 +1,4 @@
+
 import io
 from datetime import datetime, timedelta, timezone
 
@@ -460,6 +461,194 @@ st.markdown(
         [data-testid="stAlert"] {
             border-radius: 12px !important;
             border: 1px solid #2b3b53 !important;
+        }
+
+
+        /* ---------------- V17 dashboard polish ---------------- */
+
+        .device-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: .8rem;
+            padding-bottom: .75rem;
+            border-bottom: 1px solid rgba(148,163,184,.09);
+        }
+
+        .device-header-left {
+            min-width: 0;
+        }
+
+        .device-location-mini {
+            color: #71829a;
+            font-size: .62rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: .10em;
+        }
+
+        .device-title {
+            color: #ffffff;
+            font-size: 1.34rem;
+            font-weight: 900;
+            line-height: 1.08;
+            letter-spacing: -.035em;
+            margin-top: .12rem;
+        }
+
+        .device-id {
+            color: #697991;
+            font-size: .67rem;
+            font-weight: 650;
+            margin-top: .2rem;
+        }
+
+        .health-chip {
+            min-width: 86px;
+            padding: .48rem .55rem;
+            border-radius: 11px;
+            background: rgba(255,255,255,.025);
+            border: 1px solid rgba(148,163,184,.10);
+            text-align: center;
+        }
+
+        .health-chip-label {
+            color: #66758b;
+            font-size: .57rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: .09em;
+        }
+
+        .health-chip-value {
+            color: #ffffff;
+            font-size: 1.28rem;
+            font-weight: 900;
+            line-height: 1;
+            margin-top: .18rem;
+        }
+
+        .quick-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: .55rem;
+            margin-top: .75rem;
+        }
+
+        .quick-tile {
+            min-width: 0;
+            padding: .6rem .68rem;
+            border-radius: 10px;
+            background: rgba(15,23,42,.28);
+            border: 1px solid rgba(148,163,184,.08);
+        }
+
+        .quick-label {
+            color: #72829a;
+            font-size: .59rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .quick-value {
+            color: #f8fafc;
+            font-size: 1.01rem;
+            font-weight: 900;
+            margin-top: .16rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .subsection-label {
+            margin-top: .78rem;
+            margin-bottom: .38rem;
+            color: #73839a;
+            font-size: .60rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: .09em;
+        }
+
+        .axis-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: .55rem;
+        }
+
+        .axis-item {
+            padding: .55rem .65rem;
+            border-radius: 10px;
+            background: rgba(255,255,255,.018);
+            border: 1px solid rgba(148,163,184,.07);
+        }
+
+        .axis-name {
+            color: #71829a;
+            font-size: .59rem;
+            font-weight: 850;
+        }
+
+        .axis-number {
+            color: #ffffff;
+            font-size: 1.00rem;
+            font-weight: 900;
+            margin-top: .12rem;
+        }
+
+        .device-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: .75rem;
+            padding-top: .65rem;
+            margin-top: .75rem;
+            border-top: 1px solid rgba(148,163,184,.07);
+        }
+
+        .device-last-read {
+            color: #65758c;
+            font-size: .62rem;
+            font-weight: 650;
+        }
+
+        /* Let a single device use the available width naturally. */
+        [data-testid="stVerticalBlockBorderWrapper"] {
+            min-height: 0;
+            padding-top: .5rem !important;
+            padding-bottom: .5rem !important;
+        }
+
+        [data-testid="stVerticalBlockBorderWrapper"] [data-testid="stMetric"] {
+            padding: .15rem 0;
+        }
+
+        @media (max-width: 1100px) {
+            .quick-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 650px) {
+            .quick-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .device-title {
+                font-size: 1.16rem;
+            }
+
+            .health-chip {
+                min-width: 74px;
+            }
+
+            .health-chip-value {
+                font-size: 1.12rem;
+            }
         }
 
         /* ---------------- Mobile ---------------- */
@@ -2357,10 +2546,13 @@ if st.session_state.view == "dashboard":
                 unsafe_allow_html=True,
             )
 
-            # 3 cards por linha, preparado para as 6 bombas.
-            for start in range(0, len(subset), 3):
-                row_items = subset.iloc[start:start + 3]
-                columns = st.columns(3)
+            # O número de colunas acompanha a quantidade de equipamentos
+            # naquele local. Um único equipamento usa toda a largura.
+            col_count = min(3, max(1, len(subset)))
+
+            for start in range(0, len(subset), col_count):
+                row_items = subset.iloc[start:start + col_count]
+                columns = st.columns(col_count)
 
                 for index, (_, row) in enumerate(row_items.iterrows()):
                     with columns[index]:
@@ -2510,146 +2702,158 @@ if st.session_state.view == "dashboard":
                         # que o Streamlit exiba as tags como texto.
                         with st.container(border=True):
 
-                            header_left, header_right = st.columns([3, 1])
+                            header_left, header_right = st.columns([4, 1])
 
                             with header_left:
                                 st.markdown(
-                                    f"<div class='device-meta'>{location}</div>",
-                                    unsafe_allow_html=True,
-                                )
-                                st.markdown(
-                                    f"<div class='device-name'>{name}</div>",
-                                    unsafe_allow_html=True,
-                                )
-                                st.markdown(
-                                    f"<div class='device-meta'>{device_id}</div>",
+                                    f"""
+                                    <div class='device-header-left'>
+                                        <div class='device-location-mini'>{location}</div>
+                                        <div class='device-title'>{name}</div>
+                                        <div class='device-id'>{device_id}</div>
+                                    </div>
+                                    """,
                                     unsafe_allow_html=True,
                                 )
 
                             with header_right:
-                                status = str(row.get("status", "Offline"))
-                                if status == "Online":
-                                    st.success("ONLINE")
-                                elif status == "Alarme":
-                                    st.error("ALARME")
-                                else:
-                                    st.warning("OFFLINE")
-
-                                st.metric(
-                                    "Saúde",
-                                    str(score),
+                                status = str(
+                                    row.get("status", "Offline")
                                 )
 
-                            st.divider()
+                                st.markdown(
+                                    status_badge(status),
+                                    unsafe_allow_html=True,
+                                )
 
-                            # Pressão só aparece se a AI004 estiver ativa.
-                            # Vibração permanece sempre visível porque é um recurso
-                            # nativo do AXION e não depende das AIs analógicas.
-                            metric_columns = []
+                                st.markdown(
+                                    f"""
+                                    <div class='health-chip'>
+                                        <div class='health-chip-label'>Saúde</div>
+                                        <div class='health-chip-value'>{score}</div>
+                                    </div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+
+                            # ---------------- Valores principais ----------------
+                            quick_items = []
 
                             if pressure_active:
-                                metric_columns.append(
+                                quick_items.append(
                                     (
                                         "Pressão",
                                         pressure_text,
-                                        mca_text,
                                     )
                                 )
 
-                            metric_columns.append(
+                            quick_items.append(
                                 (
-                                    "Vibração máxima",
+                                    "Vibração máx.",
                                     format_value(
                                         vibration_max,
                                         3,
-                                        "mm/s"
+                                        "mm/s",
                                     ),
-                                    "RMS",
                                 )
                             )
 
-                            if len(metric_columns) == 1:
-                                with st.container():
-                                    title, value, delta = metric_columns[0]
-                                    st.metric(
-                                        title,
-                                        value,
-                                        delta,
-                                    )
-                            else:
-                                m1, m2 = st.columns(
-                                    len(metric_columns)
+                            for canal in active_ai:
+                                if canal == "AI004":
+                                    continue
+
+                                cfg = get_channel_config(
+                                    channel_configs,
+                                    device_id,
+                                    canal,
                                 )
 
-                                for col, metric_data in zip(
-                                    (m1, m2),
-                                    metric_columns
-                                ):
-                                    with col:
-                                        st.metric(
-                                            metric_data[0],
-                                            metric_data[1],
-                                            metric_data[2],
-                                        )
-
-                            active_temp_channels = [
-                                canal
-                                for canal in [
-                                    "AI005",
-                                    "AI006",
-                                    "AI007",
-                                    "AI008",
-                                ]
-                                if canal in active_ai
-                            ]
-
-                            if active_temp_channels:
-                                st.caption("Entradas analógicas")
-
-                                temp_columns = st.columns(
-                                    min(
-                                        4,
-                                        len(active_temp_channels)
+                                quick_items.append(
+                                    (
+                                        channel_display_name(
+                                            cfg,
+                                            canal,
+                                        ),
+                                        format_value(
+                                            get_channel_value(
+                                                row,
+                                                channel_configs,
+                                                device_id,
+                                                canal,
+                                                full_scale_v,
+                                            ),
+                                            int(
+                                                safe_float(
+                                                    cfg.get("decimais"),
+                                                    2,
+                                                )
+                                            ),
+                                            channel_unit(
+                                                cfg,
+                                                "",
+                                            ),
+                                        ),
                                     )
                                 )
 
-                                for index, canal_name in enumerate(
-                                    active_temp_channels
-                                ):
-                                    label, value = configured_metric(
-                                        canal_name
-                                    )
+                            quick_items = quick_items[:4]
 
-                                    with temp_columns[index]:
-                                        st.metric(
-                                            label,
-                                            value,
-                                        )
+                            quick_html = "<div class='quick-grid'>"
 
-                            st.caption("Vibração por eixo — mm/s RMS")
-
-                            v1, v2, v3 = st.columns(3)
-
-                            with v1:
-                                st.metric(
-                                    "X",
-                                    format_value(row.get("x_mm_s"), 3),
+                            for label, value in quick_items:
+                                quick_html += (
+                                    "<div class='quick-tile'>"
+                                    f"<div class='quick-label'>{label}</div>"
+                                    f"<div class='quick-value'>{value}</div>"
+                                    "</div>"
                                 )
 
-                            with v2:
-                                st.metric(
-                                    "Y",
-                                    format_value(row.get("y_mm_s"), 3),
+                            quick_html += "</div>"
+
+                            st.markdown(
+                                quick_html,
+                                unsafe_allow_html=True,
+                            )
+
+                            # ---------------- Vibração ----------------
+                            st.markdown(
+                                "<div class='subsection-label'>Vibração por eixo · mm/s RMS</div>",
+                                unsafe_allow_html=True,
+                            )
+
+                            axis_html = "<div class='axis-grid'>"
+
+                            for axis, column in [
+                                ("X", "x_mm_s"),
+                                ("Y", "y_mm_s"),
+                                ("Z", "z_mm_s"),
+                            ]:
+                                axis_html += (
+                                    "<div class='axis-item'>"
+                                    f"<div class='axis-name'>{axis}</div>"
+                                    f"<div class='axis-number'>{format_value(row.get(column), 3)}</div>"
+                                    "</div>"
                                 )
 
-                            with v3:
-                                st.metric(
-                                    "Z",
-                                    format_value(row.get("z_mm_s"), 3),
-                                )
+                            axis_html += "</div>"
 
-                            st.caption(
-                                f"Última leitura: {last_text}"
+                            st.markdown(
+                                axis_html,
+                                unsafe_allow_html=True,
+                            )
+
+                            last = row.get("recebido_em")
+                            last_text = format_local_datetime(last)
+
+                            st.markdown(
+                                f"""
+                                <div class='device-footer'>
+                                    <div class='device-last-read'>
+                                        Última leitura · {last_text}
+                                    </div>
+                                </div>
+                                """,
+                                unsafe_allow_html=True,
                             )
 
                         if st.button(
