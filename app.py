@@ -1,5 +1,7 @@
 
 
+
+
 import math
 import io
 from datetime import datetime, timedelta, timezone
@@ -918,6 +920,26 @@ def load_history(device_id, days):
 # ============================================================
 # ALARMES
 # ============================================================
+
+def get_current_device_alarms(row):
+    """
+    Retorna os alarmes ativos da leitura atual do equipamento.
+    """
+    try:
+        alarms = build_alarms(
+            pd.DataFrame([row])
+        )
+
+        if alarms.empty:
+            return alarms
+
+        return alarms[
+            alarms["Equipamento"].astype(str)
+            == str(row.get("device_id", ""))
+        ].copy()
+
+    except Exception:
+        return pd.DataFrame()
 
 def build_alarms(df):
     alarms = []
@@ -2059,12 +2081,15 @@ if st.session_state.view == "dashboard":
         online = int(
             (device_rows["status"] == "Online").sum()
         )
-        alarms = int(
-            sum(
-                health_score(row) < 80
-                for _, row in device_rows.iterrows()
+        alarms = 0
+
+        for _, dashboard_row in device_rows.iterrows():
+            current_alarms = get_current_device_alarms(
+                dashboard_row
             )
-        )
+
+            if not current_alarms.empty:
+                alarms += len(current_alarms)
 
         k1, k2, k3 = st.columns(3)
 
@@ -2106,6 +2131,27 @@ if st.session_state.view == "dashboard":
             f"Última atualização: "
             f"{format_local_datetime(datetime.now(timezone.utc))}"
         )
+
+        if alarms > 0:
+            st.markdown(
+                f"""
+                <div style="
+                    margin:.55rem 0 .25rem;
+                    padding:.65rem .8rem;
+                    border-radius:11px;
+                    background:#fff4f4;
+                    border:1px solid #f1c5c8;
+                    color:#a93640;
+                    font-size:.78rem;
+                    font-weight:850;
+                ">
+                    {alarms} alarme(s) ativo(s).
+                    Consulte cada equipamento para ver a grandeza,
+                    o valor atual e o limite que foi excedido.
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
         # --------------------------------------------------------
         # Equipamentos por local
@@ -2441,6 +2487,90 @@ if st.session_state.view == "dashboard":
                                                 """,
                                                 unsafe_allow_html=True,
                                             )
+
+                            # ----------------------------
+                            # Alarmes ativos
+                            # ----------------------------
+
+                            current_alarms = get_current_device_alarms(
+                                row
+                            )
+
+                            if not current_alarms.empty:
+                                st.markdown(
+                                    "<div class='small' style='margin-top:.55rem;'>ALARMES ATIVOS</div>",
+                                    unsafe_allow_html=True,
+                                )
+
+                                for _, alarm in current_alarms.iterrows():
+                                    value_text = format_value(
+                                        alarm.get("Valor"),
+                                        2,
+                                        alarm.get("Unidade", "")
+                                    )
+
+                                    limit_text = format_value(
+                                        alarm.get("Limite"),
+                                        2,
+                                        alarm.get("Unidade", "")
+                                    )
+
+                                    if alarm.get("Valor") < alarm.get("Limite"):
+                                        reason = "Abaixo do limite mínimo"
+                                    else:
+                                        reason = "Acima do limite máximo"
+
+                                    when_text = format_local_datetime(
+                                        alarm.get("Data/Hora")
+                                    )
+
+                                    st.markdown(
+                                        f"""
+                                        <div style="
+                                            margin:.35rem 0 .45rem;
+                                            padding:.55rem .7rem;
+                                            border-radius:10px;
+                                            background:#fff3f3;
+                                            border:1px solid #f1c6c9;
+                                        ">
+                                            <div style="
+                                                color:#b33a43;
+                                                font-size:.78rem;
+                                                font-weight:900;
+                                            ">
+                                                {alarm.get("Grandeza", "Alarme")}
+                                            </div>
+
+                                            <div style="
+                                                color:#5b6573;
+                                                font-size:.70rem;
+                                                margin-top:.10rem;
+                                            ">
+                                                {reason}
+                                            </div>
+
+                                            <div style="
+                                                color:#253043;
+                                                font-size:.76rem;
+                                                font-weight:850;
+                                                margin-top:.18rem;
+                                            ">
+                                                Valor: {value_text}
+                                                &nbsp; • &nbsp;
+                                                Limite: {limit_text}
+                                            </div>
+
+                                            <div style="
+                                                color:#7c8794;
+                                                font-size:.63rem;
+                                                margin-top:.13rem;
+                                            ">
+                                                {when_text}
+                                            </div>
+                                        </div>
+                                        """,
+                                        unsafe_allow_html=True,
+                                    )
 
                             # ----------------------------
                             # Vibração principal
@@ -2851,6 +2981,46 @@ elif st.session_state.view == "details":
                                 unit
                             )
                         )
+
+            # ------------------------------------------------
+            # ALARMES ATIVOS
+            # ------------------------------------------------
+
+            current_alarms = get_current_device_alarms(
+                row
+            )
+
+            if not current_alarms.empty:
+                st.markdown(
+                    "### Alarmes ativos"
+                )
+
+                for _, alarm in current_alarms.iterrows():
+                    value_text = format_value(
+                        alarm.get("Valor"),
+                        2,
+                        alarm.get("Unidade", "")
+                    )
+
+                    limit_text = format_value(
+                        alarm.get("Limite"),
+                        2,
+                        alarm.get("Unidade", "")
+                    )
+
+                    reason = (
+                        "Abaixo do limite mínimo"
+                        if alarm.get("Valor") < alarm.get("Limite")
+                        else "Acima do limite máximo"
+                    )
+
+                    st.error(
+                        f"{alarm.get('Grandeza', 'Alarme')} — "
+                        f"{reason}. "
+                        f"Valor: {value_text} | "
+                        f"Limite: {limit_text} | "
+                        f"{format_local_datetime(alarm.get('Data/Hora'))}"
+                    )
 
             # ------------------------------------------------
             # VIBRAÇÃO
