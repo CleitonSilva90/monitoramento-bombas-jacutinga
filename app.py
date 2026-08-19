@@ -615,8 +615,8 @@ def convert_channel_value(raw, config, full_scale_v=4.096):
     if modo == "linear_voltage":
         return linear_map(
             voltage,
-            config.get("source_min", 0),
-            config.get("source_max", 3.0),
+            0.0,
+            3.0,
             config.get("eng_min", 0),
             config.get("eng_max", 100),
         )
@@ -2317,8 +2317,24 @@ elif st.session_state.view == "config":
         st.markdown("### Entradas analógicas")
 
         st.caption(
-            "Configure somente as informações necessárias para cada entrada."
+            "Cada entrada pode ser configurada como 0–3 V ou 4–20 mA. "
+            "O shunt de 150 Ω é definido automaticamente pelo tipo elétrico."
         )
+
+        UNIT_OPTIONS = [
+            "Sem unidade",
+            "bar",
+            "MCA",
+            "°C",
+            "V",
+            "%",
+            "m",
+            "mm",
+            "mm/s RMS",
+            "RPM",
+            "A",
+            "Hz",
+        ]
 
         for canal_num in range(1, 9):
             canal = f"AI{canal_num:03d}"
@@ -2351,16 +2367,12 @@ elif st.session_state.view == "config":
             else:
                 tipo_atual = "0–3 V"
 
-            shunt_atual = bool(
-                cfg.get(
-                    "shunt_150r",
-                    str(cfg.get("modo", "")).lower() == "linear_4_20ma"
-                )
+            unidade_atual = str(
+                cfg.get("unidade") or "Sem unidade"
             )
 
-            unidade_atual = str(
-                cfg.get("unidade") or ""
-            )
+            if unidade_atual not in UNIT_OPTIONS:
+                unidade_atual = "Sem unidade"
 
             escala_min_atual = safe_float(
                 cfg.get("eng_min"),
@@ -2379,6 +2391,10 @@ elif st.session_state.view == "config":
             alarme_min_atual = cfg.get("alarme_min")
             alarme_max_atual = cfg.get("alarme_max")
 
+            shunt_ligado = (
+                tipo_atual == "4–20 mA"
+            )
+
             with st.expander(
                 f"{canal} — {nome_atual}",
                 expanded=False,
@@ -2391,56 +2407,53 @@ elif st.session_state.view == "config":
                         "Nome da função",
                         value=nome_atual,
                         help=(
-                            "Escreva livremente a função do sensor."
+                            "Digite livremente a função do sensor."
                         ),
                     )
 
                     tipo_entrada = st.selectbox(
                         "Tipo de entrada",
                         ["0–3 V", "4–20 mA"],
-                        index=1 if tipo_atual == "4–20 mA" else 0,
+                        index=(
+                            1 if tipo_atual == "4–20 mA"
+                            else 0
+                        ),
                     )
 
-                    shunt_150r = st.selectbox(
+                    # O shunt não é editável.
+                    # Ele segue automaticamente o tipo elétrico.
+                    st.text_input(
                         "Shunt 150 Ω",
-                        ["OFF", "ON"],
-                        index=1 if shunt_atual else 0,
+                        value=(
+                            "ON — automático"
+                            if tipo_entrada == "4–20 mA"
+                            else "OFF — automático"
+                        ),
+                        disabled=True,
                     )
 
-                    func_lower = channel_name.strip().lower()
-                    is_pressure = "press" in func_lower
-
-                    if is_pressure:
-                        unit_options = ["bar", "MCA"]
-                        if unidade_atual and unidade_atual not in unit_options:
-                            unit_options.append(unidade_atual)
-                        unidade_default = (
+                    unidade = st.selectbox(
+                        "Unidade",
+                        UNIT_OPTIONS,
+                        index=UNIT_OPTIONS.index(
                             unidade_atual
-                            if unidade_atual in unit_options
-                            else unit_options[0]
-                        )
-                        unidade = st.selectbox(
-                            "Unidade de pressão",
-                            unit_options,
-                            index=unit_options.index(unidade_default),
-                        )
-                    else:
-                        unidade = st.text_input(
-                            "Unidade",
-                            value=unidade_atual,
-                            placeholder="Ex.: °C, V, %, m, mm/s",
-                        )
+                        ),
+                    )
 
                     escala_min = st.number_input(
                         "Escala mínima",
-                        value=float(escala_min_atual),
+                        value=float(
+                            escala_min_atual
+                        ),
                         step=0.1,
                         format="%.2f",
                     )
 
                     escala_max = st.number_input(
                         "Escala máxima",
-                        value=float(escala_max_atual),
+                        value=float(
+                            escala_max_atual
+                        ),
                         step=0.1,
                         format="%.2f",
                     )
@@ -2480,6 +2493,13 @@ elif st.session_state.view == "config":
                     )
 
                 if save_channel:
+
+                    if not channel_name.strip():
+                        st.error(
+                            f"Informe o nome da função de {canal}."
+                        )
+                        st.stop()
+
                     tipo_entrada_normalizado = (
                         "4–20 mA"
                         if tipo_entrada == "4–20 mA"
@@ -2487,45 +2507,56 @@ elif st.session_state.view == "config":
                     )
 
                     shunt_ligado = (
-                        shunt_150r == "ON"
+                        tipo_entrada_normalizado == "4–20 mA"
                     )
 
                     modo_interno = (
-                        "linear_4_20mA"
-                        if tipo_entrada_normalizado == "4–20 mA"
+                        "linear_4_20ma"
+                        if shunt_ligado
                         else "linear_voltage"
                     )
 
+                    # Para 4–20 mA, o domínio elétrico é 4–20 mA.
+                    # Para tensão, o domínio elétrico é 0–3 V.
+                    if shunt_ligado:
+                        source_min = 4.0
+                        source_max = 20.0
+                    else:
+                        source_min = 0.0
+                        source_max = 3.0
+
                     payload = {
                         "nome_exibicao": (
-                            channel_name.strip() or canal
+                            channel_name.strip()
                         ),
-                        "tipo_entrada": tipo_entrada_normalizado,
+                        "tipo_entrada": (
+                            tipo_entrada_normalizado
+                        ),
                         "shunt_150r": shunt_ligado,
                         "modo": modo_interno,
                         "role": "generic",
                         "unidade": (
-                            unidade.strip()
-                            if isinstance(unidade, str)
-                            else ""
+                            ""
+                            if unidade == "Sem unidade"
+                            else unidade
                         ),
-                        "source_min": (
-                            4.0
-                            if tipo_entrada_normalizado == "4–20 mA"
-                            else 0.0
+                        "source_min": source_min,
+                        "source_max": source_max,
+                        "eng_min": float(
+                            escala_min
                         ),
-                        "source_max": (
-                            20.0
-                            if tipo_entrada_normalizado == "4–20 mA"
-                            else 3.0
+                        "eng_max": float(
+                            escala_max
                         ),
-                        "eng_min": float(escala_min),
-                        "eng_max": float(escala_max),
                         "shunt_ohms": 150.0,
                         "decimais": 2,
                         "ativo": ativo,
-                        "alarme_min": float(alarme_min),
-                        "alarme_max": float(alarme_max),
+                        "alarme_min": float(
+                            alarme_min
+                        ),
+                        "alarme_max": float(
+                            alarme_max
+                        ),
                     }
 
                     ok, error = update_channel(
@@ -2535,7 +2566,9 @@ elif st.session_state.view == "config":
                     )
 
                     if ok:
-                        st.success(f"{canal} atualizado.")
+                        st.success(
+                            f"{canal} atualizado."
+                        )
                         st.rerun()
                     else:
                         st.error(
