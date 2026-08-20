@@ -169,30 +169,19 @@ def logout():
 
 if not st.session_state.auth_session:
 
-    st.markdown(
-        """
-        <div style="
-            max-width:440px;
-            margin:9vh auto 1rem;
-            padding:30px;
-            background:#ffffff;
-            border:1px solid #d9dfe6;
-            border-radius:18px;
-            box-shadow:0 10px 32px rgba(31,41,55,.08);
-        ">
-            <div style="
-                color:#162033;
-                font-size:1.75rem;
-                font-weight:900;
-            ">AXION</div>
+    login_card_html = (
+        '<div style="max-width:440px;margin:9vh auto 1rem;'
+        'padding:30px;background:#ffffff;border:1px solid #d9dfe6;'
+        'border-radius:18px;box-shadow:0 10px 32px rgba(31,41,55,.08);">'
+        '<div style="color:#162033;font-size:1.75rem;font-weight:900;">AXION</div>'
+        '<div style="margin-top:4px;color:#7a8594;font-size:.84rem;">'
+        'Monitoramento Industrial'
+        '</div>'
+        '</div>'
+    )
 
-            <div style="
-                margin-top:4px;
-                color:#7a8594;
-                font-size:.84rem;
-            ">Monitoramento Industrial</div>
-        </div>
-        """,
+    st.markdown(
+        login_card_html,
         unsafe_allow_html=True,
     )
 
