@@ -4,6 +4,7 @@
 
 import math
 import io
+import json
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -45,17 +46,42 @@ MCA_PER_BAR = 10.197
 # ============================================================
 
 @st.cache_resource
-def init_supabase():
+def get_supabase_config():
     try:
-        url = st.secrets["supabase_url"]
-        key = st.secrets["supabase_key"]
-        return create_client(url, key)
+        return (
+            st.secrets["supabase_url"],
+            st.secrets["supabase_key"],
+        )
     except Exception as exc:
-        st.error(f"Não foi possível conectar ao Supabase: {exc}")
+        st.error(
+            f"Não foi possível carregar a configuração do Supabase: {exc}"
+        )
+        return None, None
+
+
+def get_authenticated_supabase():
+    session = st.session_state.get("auth_session")
+
+    if not session:
+        return None
+
+    url, key = get_supabase_config()
+
+    if not url or not key:
+        return None
+
+    try:
+        client = create_client(url, key)
+        client.auth.set_session(
+            session["access_token"],
+            session["refresh_token"],
+        )
+        return client
+    except Exception:
         return None
 
 
-supabase = init_supabase()
+supabase = None
 
 
 # ============================================================
@@ -70,6 +96,186 @@ if "device_id" not in st.session_state:
 
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = datetime.now().timestamp()
+
+if "auth_session" not in st.session_state:
+    st.session_state.auth_session = None
+
+if "user_profile" not in st.session_state:
+    st.session_state.user_profile = None
+
+
+# ============================================================
+# AUTENTICAÇÃO
+# ============================================================
+
+def get_current_user_profile():
+    client = get_authenticated_supabase()
+
+    if client is None:
+        return None
+
+    try:
+        user = client.auth.get_user().user
+
+        response = (
+            client
+            .table("perfis_usuarios")
+            .select("id,nome,email,perfil,ativo")
+            .eq("id", user.id)
+            .limit(1)
+            .execute()
+        )
+
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    except Exception:
+        return None
+
+
+def allowed_profiles(*profiles):
+    profile = st.session_state.get("user_profile")
+
+    if not profile or not bool(profile.get("ativo", True)):
+        return False
+
+    current = str(
+        profile.get("perfil", "")
+    ).strip().lower()
+
+    return current in {
+        str(item).strip().lower()
+        for item in profiles
+    }
+
+
+def logout():
+    try:
+        client = get_authenticated_supabase()
+        if client is not None:
+            client.auth.sign_out()
+    except Exception:
+        pass
+
+    st.session_state.auth_session = None
+    st.session_state.user_profile = None
+    st.session_state.view = "dashboard"
+    st.rerun()
+
+
+# ============================================================
+# LOGIN
+# ============================================================
+
+if not st.session_state.auth_session:
+
+    st.markdown(
+        """
+        <div style="
+            max-width:440px;
+            margin:9vh auto 1rem;
+            padding:30px;
+            background:#ffffff;
+            border:1px solid #d9dfe6;
+            border-radius:18px;
+            box-shadow:0 10px 32px rgba(31,41,55,.08);
+        ">
+            <div style="
+                color:#162033;
+                font-size:1.75rem;
+                font-weight:900;
+            ">AXION</div>
+
+            <div style="
+                margin-top:4px;
+                color:#7a8594;
+                font-size:.84rem;
+            ">Monitoramento Industrial</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form("login_form"):
+
+        login_email = st.text_input(
+            "E-mail",
+            placeholder="usuario@empresa.com",
+        )
+
+        login_password = st.text_input(
+            "Senha",
+            type="password",
+        )
+
+        login_submit = st.form_submit_button(
+            "Entrar",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if login_submit:
+
+        if not login_email.strip() or not login_password:
+
+            st.error("Informe e-mail e senha.")
+
+        else:
+
+            try:
+                url, key = get_supabase_config()
+
+                login_client = create_client(
+                    url,
+                    key,
+                )
+
+                response = login_client.auth.sign_in_with_password({
+                    "email": login_email.strip(),
+                    "password": login_password,
+                })
+
+                session = response.session
+
+                if not session:
+                    raise RuntimeError(
+                        "O Supabase não retornou uma sessão."
+                    )
+
+                st.session_state.auth_session = {
+                    "access_token": session.access_token,
+                    "refresh_token": session.refresh_token,
+                }
+
+                st.session_state.user_profile = None
+                st.rerun()
+
+            except Exception:
+
+                st.error(
+                    "Não foi possível entrar. Verifique o e-mail e a senha."
+                )
+
+    st.stop()
+
+
+st.session_state.user_profile = (
+    st.session_state.user_profile
+    or get_current_user_profile()
+)
+
+if not st.session_state.user_profile:
+    logout()
+
+if not bool(
+    st.session_state.user_profile.get(
+        "ativo",
+        True,
+    )
+):
+    logout()
+
+supabase = get_authenticated_supabase()
 
 
 # ============================================================
@@ -2179,13 +2385,18 @@ def generate_pdf(device_id, row, history):
 top = st.columns([2, 1, 1, 1, 1])
 
 with top[0]:
+    profile = st.session_state.user_profile or {}
+
     st.markdown(
-        """
+        f"""
         <div class="top-card">
-            <div style="font-size:2rem;font-weight:850;">
-                AXION <span style="color:#3b82f6;">| Monitoramento Industrial</span>
+            <div style="font-size:1.35rem;font-weight:900;color:#162033;">
+                AXION <span style="color:#536fca;">| Monitoramento Industrial</span>
             </div>
-            <div class="muted">Telemetria via HTTPS → Supabase • Atualização automática: 30 s</div>
+            <div class="muted">
+                {profile.get("nome") or profile.get("email") or "Usuário"}
+                • {profile.get("perfil") or "Operador"}
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2219,13 +2430,51 @@ with top[3]:
         st.rerun()
 
 with top[4]:
-    if st.button(
-        "⚙️  Configuração",
-        use_container_width=True,
-        type="primary" if st.session_state.view == "config" else "secondary",
+    if allowed_profiles(
+        "Administrador",
+        "Gerente",
+        "Técnico",
     ):
-        st.session_state.view = "config"
-        st.rerun()
+        if st.button(
+            "⚙️  Configuração",
+            use_container_width=True,
+            type="primary" if st.session_state.view == "config" else "secondary",
+        ):
+            st.session_state.view = "config"
+            st.rerun()
+
+st.caption(
+    f"Atualização automática a cada {REFRESH_SECONDS}s • "
+    f"Última atualização: {format_local_datetime(datetime.now(timezone.utc))}"
+)
+
+if allowed_profiles("Administrador"):
+
+    user_col, logout_col = st.columns([1, 1])
+
+    with user_col:
+        if st.button(
+            "👤  Usuários",
+            use_container_width=True,
+            type="primary" if st.session_state.view == "users" else "secondary",
+        ):
+            st.session_state.view = "users"
+            st.rerun()
+
+    with logout_col:
+        if st.button(
+            "Sair",
+            use_container_width=True,
+        ):
+            logout()
+
+else:
+
+    if st.button(
+        "Sair",
+        key="logout_current_user",
+    ):
+        logout()
 
 st.caption(
     f"Atualização automática a cada {REFRESH_SECONDS}s • "
@@ -3653,7 +3902,356 @@ elif st.session_state.view == "reports":
 # CONFIGURAÇÃO
 # ============================================================
 
+elif st.session_state.view == "users":
+
+    if not allowed_profiles("Administrador"):
+        st.error("Acesso restrito ao Administrador.")
+        st.stop()
+
+    st.markdown(
+        "<div class='page-kicker'>Administração</div>"
+        "<div class='page-title'>Usuários</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.info(
+        "As senhas são administradas pelo Supabase Auth. "
+        "A tabela de perfis não armazena senhas."
+    )
+
+    with st.expander("➕ Cadastrar usuário", expanded=False):
+
+        with st.form("create_user_form"):
+
+            user_name = st.text_input(
+                "Nome",
+                placeholder="Ex.: João da Silva",
+            )
+
+            user_email = st.text_input(
+                "E-mail",
+                placeholder="usuario@empresa.com",
+            )
+
+            user_password = st.text_input(
+                "Senha inicial",
+                type="password",
+            )
+
+            user_role = st.selectbox(
+                "Perfil",
+                [
+                    "Operador",
+                    "Técnico",
+                    "Gerente",
+                    "Administrador",
+                ],
+            )
+
+            create_user = st.form_submit_button(
+                "Criar usuário",
+                type="primary",
+            )
+
+        if create_user:
+
+            if not user_name.strip():
+                st.error("Informe o nome.")
+
+            elif not user_email.strip():
+                st.error("Informe o e-mail.")
+
+            elif len(user_password) < 8:
+                st.error(
+                    "A senha inicial deve ter pelo menos 8 caracteres."
+                )
+
+            else:
+
+                try:
+
+                    response = supabase.functions.invoke(
+                        "admin-user-management",
+                        {
+                            "body": {
+                                "action": "create",
+                                "nome": user_name.strip(),
+                                "email": user_email.strip(),
+                                "password": user_password,
+                                "perfil": user_role,
+                            }
+                        },
+                    )
+
+                    data = getattr(response, "data", None)
+
+                    if isinstance(data, str):
+                        data = json.loads(data)
+
+                    if not isinstance(data, dict) or not data.get("ok"):
+                        raise RuntimeError(
+                            data.get("error")
+                            if isinstance(data, dict)
+                            else "Resposta inválida."
+                        )
+
+                    st.success("Usuário criado com sucesso.")
+                    st.rerun()
+
+                except Exception as exc:
+
+                    st.error("Não foi possível criar o usuário.")
+                    st.caption(str(exc))
+
+    try:
+
+        users_response = (
+            supabase
+            .table("perfis_usuarios")
+            .select("id,nome,email,perfil,ativo,created_at")
+            .order("nome")
+            .execute()
+        )
+
+        users = pd.DataFrame(
+            users_response.data or []
+        )
+
+    except Exception as exc:
+
+        st.error("Não foi possível carregar os usuários.")
+        st.caption(str(exc))
+        users = pd.DataFrame()
+
+    if users.empty:
+
+        st.info("Nenhum usuário cadastrado.")
+
+    else:
+
+        for _, user in users.iterrows():
+
+            uid = str(user.get("id"))
+            name = str(user.get("nome") or "")
+            email = str(user.get("email") or "")
+            role = str(user.get("perfil") or "Operador")
+            active = bool(user.get("ativo", True))
+
+            with st.container(border=True):
+
+                left, right = st.columns([4, 1])
+
+                with left:
+
+                    st.markdown(f"### {name}")
+
+                    st.caption(
+                        f"{email} • {role} • "
+                        f"{'Ativo' if active else 'Inativo'}"
+                    )
+
+                with right:
+
+                    if st.button(
+                        "Editar",
+                        key=f"edit_{uid}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.edit_user_id = uid
+                        st.rerun()
+
+                    if st.button(
+                        "Redefinir senha",
+                        key=f"reset_{uid}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.reset_user_id = uid
+                        st.session_state.reset_user_name = name
+                        st.rerun()
+
+                if (
+                    st.session_state.get("edit_user_id")
+                    == uid
+                ):
+
+                    with st.form(f"edit_user_{uid}"):
+
+                        edited_role = st.selectbox(
+                            "Perfil",
+                            [
+                                "Operador",
+                                "Técnico",
+                                "Gerente",
+                                "Administrador",
+                            ],
+                            index=(
+                                [
+                                    "Operador",
+                                    "Técnico",
+                                    "Gerente",
+                                    "Administrador",
+                                ].index(role)
+                                if role in [
+                                    "Operador",
+                                    "Técnico",
+                                    "Gerente",
+                                    "Administrador",
+                                ]
+                                else 0
+                            ),
+                        )
+
+                        edited_active = st.checkbox(
+                            "Usuário ativo",
+                            value=active,
+                        )
+
+                        save_user_edit = st.form_submit_button(
+                            "Salvar alterações",
+                            type="primary",
+                        )
+
+                    if save_user_edit:
+
+                        try:
+
+                            response = supabase.functions.invoke(
+                                "admin-user-management",
+                                {
+                                    "body": {
+                                        "action": "update_profile",
+                                        "user_id": uid,
+                                        "perfil": edited_role,
+                                        "ativo": edited_active,
+                                    }
+                                },
+                            )
+
+                            data = getattr(response, "data", None)
+
+                            if isinstance(data, str):
+                                data = json.loads(data)
+
+                            if not isinstance(data, dict) or not data.get("ok"):
+                                raise RuntimeError(
+                                    data.get("error")
+                                    if isinstance(data, dict)
+                                    else "Resposta inválida."
+                                )
+
+                            st.success(
+                                "Usuário atualizado."
+                            )
+
+                            st.session_state.pop(
+                                "edit_user_id",
+                                None,
+                            )
+
+                            st.rerun()
+
+                        except Exception as exc:
+
+                            st.error(
+                                "Não foi possível atualizar o usuário."
+                            )
+                            st.caption(str(exc))
+
+                if (
+                    st.session_state.get("reset_user_id")
+                    == uid
+                ):
+
+                    with st.form(f"reset_password_{uid}"):
+
+                        new_password = st.text_input(
+                            "Nova senha",
+                            type="password",
+                        )
+
+                        new_password_confirm = st.text_input(
+                            "Confirmar nova senha",
+                            type="password",
+                        )
+
+                        reset_submit = st.form_submit_button(
+                            "Salvar nova senha",
+                            type="primary",
+                        )
+
+                    if reset_submit:
+
+                        if len(new_password) < 8:
+
+                            st.error(
+                                "A nova senha deve ter pelo menos 8 caracteres."
+                            )
+
+                        elif new_password != new_password_confirm:
+
+                            st.error("As senhas não coincidem.")
+
+                        else:
+
+                            try:
+
+                                response = supabase.functions.invoke(
+                                    "admin-user-management",
+                                    {
+                                        "body": {
+                                            "action": "reset_password",
+                                            "user_id": uid,
+                                            "password": new_password,
+                                        }
+                                    },
+                                )
+
+                                data = getattr(response, "data", None)
+
+                                if isinstance(data, str):
+                                    data = json.loads(data)
+
+                                if not isinstance(data, dict) or not data.get("ok"):
+                                    raise RuntimeError(
+                                        data.get("error")
+                                        if isinstance(data, dict)
+                                        else "Resposta inválida."
+                                    )
+
+                                st.success(
+                                    "Senha redefinida com sucesso."
+                                )
+
+                                st.session_state.pop(
+                                    "reset_user_id",
+                                    None,
+                                )
+
+                                st.rerun()
+
+                            except Exception as exc:
+
+                                st.error(
+                                    "Não foi possível redefinir a senha."
+                                )
+                                st.caption(str(exc))
+
+    st.stop()
+
+
 elif st.session_state.view == "config":
+
+    if not allowed_profiles(
+        "Administrador",
+        "Gerente",
+        "Técnico",
+    ):
+        st.error(
+            "Você não tem permissão para acessar esta área."
+        )
+        st.stop()
+
+
 
     st.markdown("## Configuração")
 
