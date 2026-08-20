@@ -1,23 +1,16 @@
-# Dashboard GS Inima v4.0 - Dependências Completas
+# AXION — Dashboard de Monitoramento Industrial
+# Versões fixadas para evitar resolução automática incompatível no Streamlit Cloud.
 
-# Core
-streamlit>=1.28.0
-pandas>=2.0.0
-numpy>=1.24.0
+streamlit==1.61.0
+pandas==2.3.3
+numpy==2.2.6
+plotly==6.3.1
 
-# Visualização
-plotly>=5.17.0
+supabase==2.31.0
+postgrest==2.31.0
 
-# Banco de Dados
-supabase>=2.0.0
-postgrest>=0.16.0
+openpyxl==3.1.5
+reportlab==4.4.3
 
-# Geração de Relatórios
-openpyxl>=3.1.0
-reportlab>=4.0.0
-
-# Protocolos e Comunicação
 paho-mqtt==1.6.1
-
-# Atualização automática do dashboard
-streamlit-autorefresh>=1.0.1
+streamlit-autorefresh==1.0.1
