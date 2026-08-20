@@ -18,6 +18,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Spacer, Table, TableStyle, Paragraph
 from supabase import create_client
 from core.constants import REFRESH_SECONDS, OFFLINE_AFTER_SECONDS, MCA_PER_BAR
+from ui.theme import apply_theme
 from core.session import (
     get_supabase_config,
     get_authenticated_supabase,
@@ -37,6 +38,7 @@ from pages.details import render_details
 from pages.reports import render_reports
 from pages.users import render_users
 from pages.configuration import render_configuration
+from ui.login import render_login
 
 try:
     from streamlit_autorefresh import st_autorefresh
@@ -55,7 +57,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-
 
 # ============================================================
 # SUPABASE
@@ -101,86 +102,7 @@ if "users_feedback" not in st.session_state:
 # ============================================================
 
 if not st.session_state.auth_session:
-
-    login_card_html = (
-        '<div style="max-width:440px;margin:9vh auto 1rem;'
-        'padding:30px;background:#ffffff;border:1px solid #d9dfe6;'
-        'border-radius:18px;box-shadow:0 10px 32px rgba(31,41,55,.08);">'
-        '<div style="color:#162033;font-size:1.75rem;font-weight:900;">AXION</div>'
-        '<div style="margin-top:4px;color:#7a8594;font-size:.84rem;">'
-        'Monitoramento Industrial'
-        '</div>'
-        '</div>'
-    )
-
-    st.markdown(
-        login_card_html,
-        unsafe_allow_html=True,
-    )
-
-    with st.form("login_form"):
-
-        login_email = st.text_input(
-            "E-mail",
-            placeholder="usuario@empresa.com",
-        )
-
-        login_password = st.text_input(
-            "Senha",
-            type="password",
-        )
-
-        login_submit = st.form_submit_button(
-            "Entrar",
-            type="primary",
-            width="stretch",
-        )
-
-    if login_submit:
-
-        if not login_email.strip() or not login_password:
-
-            st.error("Informe e-mail e senha.")
-
-        else:
-
-            try:
-                url, key = get_supabase_config()
-
-                login_client = create_client(
-                    url,
-                    key,
-                )
-
-                response = login_client.auth.sign_in_with_password({
-                    "email": login_email.strip(),
-                    "password": login_password,
-                })
-
-                session = response.session
-
-                if not session:
-                    raise RuntimeError(
-                        "O Supabase não retornou uma sessão."
-                    )
-
-                st.session_state.auth_session = {
-                    "access_token": session.access_token,
-                    "refresh_token": session.refresh_token,
-                }
-
-                # Não reutilizar dados carregados antes da autenticação.
-                st.cache_data.clear()
-
-                st.session_state.user_profile = None
-                st.rerun()
-
-            except Exception:
-
-                st.error(
-                    "Não foi possível entrar. Verifique o e-mail e a senha."
-                )
-
+    render_login()
     st.stop()
 
 
@@ -202,6 +124,8 @@ if not bool(
 
 supabase = get_authenticated_supabase()
 set_supabase_client(supabase)
+
+apply_theme()
 
 
 # ============================================================
