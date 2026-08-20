@@ -1,3 +1,7 @@
+
+
+
+
 import math
 import io
 import json
@@ -374,6 +378,165 @@ st.markdown(
             min-width:38px;
             padding:.35rem .25rem !important;
             font-size:1rem !important;
+        }
+
+        /* ========================================================
+           AXION — visual base inspired by the supplied reference
+           ======================================================== */
+
+        .axion-header{
+            width:100%;
+            min-height:58px;
+            margin-bottom:.70rem;
+            padding:.70rem 1rem;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:1rem;
+            background:#385474;
+            color:#ffffff;
+            border-radius:12px;
+            box-shadow:0 3px 12px rgba(56,84,116,.16);
+        }
+
+        .axion-header-logo{
+            display:flex;
+            align-items:center;
+            gap:.38rem;
+            min-width:0;
+        }
+
+        .axion-header-mark{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            width:29px;
+            height:29px;
+            border-radius:8px;
+            background:rgba(255,255,255,.14);
+            border:1px solid rgba(255,255,255,.18);
+            font-size:.82rem;
+            font-weight:900;
+        }
+
+        .axion-header-name{
+            font-size:1.12rem;
+            font-weight:900;
+            letter-spacing:-.03em;
+        }
+
+        .axion-header-divider{
+            opacity:.55;
+            font-size:1rem;
+        }
+
+        .axion-header-title{
+            font-size:.94rem;
+            font-weight:650;
+            opacity:.92;
+            white-space:nowrap;
+        }
+
+        .axion-header-right{
+            display:flex;
+            align-items:center;
+            gap:.35rem;
+            color:rgba(255,255,255,.82);
+            font-size:.62rem;
+            font-weight:750;
+        }
+
+        .axion-header-online-dot{
+            width:7px;
+            height:7px;
+            border-radius:50%;
+            background:#81c784;
+            box-shadow:0 0 0 3px rgba(129,199,132,.12);
+        }
+
+        [data-testid="stHorizontalBlock"] div.stButton>button{
+            min-height:42px;
+            padding:.38rem .45rem !important;
+            border-radius:10px !important;
+            font-size:.70rem !important;
+            font-weight:850 !important;
+        }
+
+        [data-testid="stHorizontalBlock"] div.stButton>button[kind="primary"]{
+            background:#385474 !important;
+            border-color:#385474 !important;
+            color:#ffffff !important;
+        }
+
+        [data-testid="stHorizontalBlock"] div.stButton>button[kind="secondary"]{
+            background:#ffffff !important;
+            border-color:#d3dae3 !important;
+            color:#385474 !important;
+        }
+
+        .account-line{
+            min-height:28px;
+            display:flex;
+            align-items:center;
+            gap:.50rem;
+            color:#344054;
+            font-size:.70rem;
+        }
+
+        .account-line span{
+            padding:.16rem .40rem;
+            border-radius:999px;
+            background:#eef2ff;
+            border:1px solid #dce4ff;
+            color:#536fca;
+            font-size:.58rem;
+            font-weight:850;
+        }
+
+        .kpi{
+            background:#ffffff;
+            border:1px solid #e2e8f0;
+            border-radius:12px;
+            overflow:hidden;
+            padding:0 !important;
+            min-height:96px;
+            box-shadow:0 4px 12px rgba(0,0,0,.05);
+        }
+
+        .kpi-top{
+            width:100%;
+            height:7px;
+        }
+
+        .kpi-blue .kpi-top{background:#385474}
+        .kpi-green .kpi-top{background:#81c784}
+        .kpi-red .kpi-top{background:#e53935}
+
+        .kpi-content{
+            padding:.70rem 1rem .62rem;
+        }
+
+        .kpi .small{
+            color:#64748b !important;
+            font-size:.61rem !important;
+            font-weight:800 !important;
+            letter-spacing:.04em;
+        }
+
+        .kpi .kpi-value{
+            color:#1e293b;
+            font-size:1.55rem;
+            line-height:1.05;
+            font-weight:900;
+            margin-top:.12rem;
+        }
+
+        .kpi-subtitle{
+            margin-top:.12rem;
+            color:#64748b;
+            font-size:.56rem;
+            font-weight:700;
+            text-transform:uppercase;
         }
 
         @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}}
@@ -2443,72 +2606,105 @@ current_user_role = str(
     or "Operador"
 )
 
-top = st.columns([5.2, .65, .65, .65, .65, .65])
+# ============================================================
+# CABEÇALHO / NAVEGAÇÃO
+# ============================================================
 
-with top[0]:
-    st.markdown(
-        """
-        <div class="top-brand">
-            <div class="top-brand-title">
-                AXION <span>| Monitoramento Industrial</span>
-            </div>
+profile = st.session_state.user_profile or {}
+current_user_name = str(
+    profile.get("nome")
+    or profile.get("email")
+    or "Usuário"
+)
+current_user_role = str(
+    profile.get("perfil")
+    or "Operador"
+)
+
+st.markdown(
+    """
+    <div class="axion-header">
+        <div class="axion-header-logo">
+            <span class="axion-header-mark">⌂</span>
+            <span class="axion-header-name">AXION</span>
+            <span class="axion-header-divider">|</span>
+            <span class="axion-header-title">Monitoramento Industrial</span>
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
-with top[1]:
+        <div class="axion-header-right">
+            <span class="axion-header-online-dot"></span>
+            Sistema
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+nav1, nav2, nav3, nav4, nav5 = st.columns(
+    [1, 1, 1, 1, 1],
+    gap="small",
+)
+
+with nav1:
     if st.button(
-        "⌂",
+        "⌂  Início",
         key="nav_dashboard",
         help="Dashboard",
         use_container_width=True,
-        type="primary" if st.session_state.view == "dashboard" else "secondary",
+        type="primary"
+        if st.session_state.view == "dashboard"
+        else "secondary",
     ):
         st.session_state.view = "dashboard"
         st.rerun()
 
-with top[2]:
+with nav2:
     if st.button(
-        "▥",
+        "▤  Detalhes",
         key="nav_details",
         help="Detalhes",
         use_container_width=True,
-        type="primary" if st.session_state.view == "details" else "secondary",
+        type="primary"
+        if st.session_state.view == "details"
+        else "secondary",
     ):
         st.session_state.view = "details"
         st.rerun()
 
-with top[3]:
+with nav3:
     if st.button(
-        "▤",
+        "▥  Relatórios",
         key="nav_reports",
         help="Relatórios",
         use_container_width=True,
-        type="primary" if st.session_state.view == "reports" else "secondary",
+        type="primary"
+        if st.session_state.view == "reports"
+        else "secondary",
     ):
         st.session_state.view = "reports"
         st.rerun()
 
-with top[4]:
+with nav4:
     if allowed_profiles(
         "Administrador",
         "Gerente",
         "Técnico",
     ):
         if st.button(
-            "⚙",
+            "⚙  Configuração",
             key="nav_config",
             help="Configuração",
             use_container_width=True,
-            type="primary" if st.session_state.view == "config" else "secondary",
+            type="primary"
+            if st.session_state.view == "config"
+            else "secondary",
         ):
             st.session_state.view = "config"
             st.rerun()
 
-with top[5]:
+with nav5:
     if st.button(
-        "●",
+        "●  Conta",
         key="nav_account",
         help=f"{current_user_name} • {current_user_role}",
         use_container_width=True,
@@ -2519,42 +2715,43 @@ with top[5]:
         )
 
 if st.session_state.get("show_account_menu", False):
-    account_left, account_user, account_users, account_logout = st.columns(
-        [5, 2, 1, 1]
-    )
 
-    with account_left:
-        st.empty()
+    with st.container(border=True):
 
-    with account_user:
-        st.markdown(
-            f"""
-            <div class="account-chip">
-                <span>{current_user_name}</span>
-                <b>{current_user_role}</b>
-            </div>
-            """,
-            unsafe_allow_html=True,
+        account_user, account_users, account_logout = st.columns(
+            [5, 1.2, 1],
+            gap="small",
         )
 
-    with account_users:
-        if allowed_profiles("Administrador"):
+        with account_user:
+            st.markdown(
+                f"""
+                <div class="account-line">
+                    <b>{current_user_name}</b>
+                    <span>{current_user_role}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with account_users:
+            if allowed_profiles("Administrador"):
+                if st.button(
+                    "Usuários",
+                    key="account_users",
+                    use_container_width=True,
+                ):
+                    st.session_state.view = "users"
+                    st.session_state.show_account_menu = False
+                    st.rerun()
+
+        with account_logout:
             if st.button(
-                "Usuários",
-                key="account_users",
+                "Sair",
+                key="account_logout",
                 use_container_width=True,
             ):
-                st.session_state.view = "users"
-                st.session_state.show_account_menu = False
-                st.rerun()
-
-    with account_logout:
-        if st.button(
-            "Sair",
-            key="account_logout",
-            use_container_width=True,
-        ):
-            logout()
+                logout()
 
 # ============================================================
 # DADOS ATUAIS
@@ -2694,9 +2891,13 @@ if st.session_state.view == "dashboard":
         with k1:
             st.markdown(
                 f"""
-                <div class="kpi">
-                    <div class="small">DISPOSITIVOS</div>
-                    <div class="kpi-value">{total}</div>
+                <div class="kpi kpi-blue">
+                    <div class="kpi-top"></div>
+                    <div class="kpi-content">
+                        <div class="small">DISPOSITIVOS</div>
+                        <div class="kpi-value">{total}</div>
+                        <div class="kpi-subtitle">{total} DISPOSITIVO(S) CADASTRADO(S)</div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2705,9 +2906,13 @@ if st.session_state.view == "dashboard":
         with k2:
             st.markdown(
                 f"""
-                <div class="kpi">
-                    <div class="small">ONLINE</div>
-                    <div class="kpi-value" style="color:#22c55e;">{online}</div>
+                <div class="kpi kpi-green">
+                    <div class="kpi-top"></div>
+                    <div class="kpi-content">
+                        <div class="small">ONLINE</div>
+                        <div class="kpi-value" style="color:#2e7d32;">{online}</div>
+                        <div class="kpi-subtitle">{online} DISPOSITIVO(S) ONLINE</div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2716,9 +2921,13 @@ if st.session_state.view == "dashboard":
         with k3:
             st.markdown(
                 f"""
-                <div class="kpi">
-                    <div class="small">ALARMES</div>
-                    <div class="kpi-value" style="color:#ff626b;">{alarms}</div>
+                <div class="kpi kpi-red">
+                    <div class="kpi-top"></div>
+                    <div class="kpi-content">
+                        <div class="small">ALARMES ATIVOS</div>
+                        <div class="kpi-value" style="color:#d32f2f;">{alarms}</div>
+                        <div class="kpi-subtitle">{alarms} ALARME(S) ATIVO(S)</div>
+                    </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
