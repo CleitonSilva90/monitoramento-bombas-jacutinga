@@ -103,6 +103,9 @@ if "auth_session" not in st.session_state:
 if "user_profile" not in st.session_state:
     st.session_state.user_profile = None
 
+if "users_feedback" not in st.session_state:
+    st.session_state.users_feedback = None
+
 
 # ============================================================
 # AUTENTICAÇÃO
@@ -334,131 +337,67 @@ st.markdown(
         div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
         [data-testid="stForm"] label,[data-testid="stForm"] label p,[data-testid="stForm"] label span{color:#4c5665!important;font-weight:750!important}[data-testid="stExpander"]{background:#fff;border:1px solid #d9dfe6;border-radius:11px}[data-testid="stExpander"] summary{color:#263242!important;font-weight:800!important}
 
-        .top-brand{
-            background:#ffffff;
-            border:1px solid #d8dee6;
-            border-radius:12px;
-            padding:.55rem .70rem;
-            box-shadow:0 3px 12px rgba(31,41,55,.035);
-        }
-
-        .top-brand-title{
-            color:#162033;
-            font-size:1.05rem;
-            font-weight:900;
-            line-height:1.05;
-            white-space:nowrap;
-        }
-
-        .top-brand-title span{
+                        .top-brand-title span{
             color:#536fca;
         }
 
-        .account-chip{
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            gap:.45rem;
-            padding:.35rem .50rem;
-            color:#344054;
-            font-size:.68rem;
-            font-weight:800;
-        }
-
-        .account-chip b{
-            padding:.16rem .38rem;
-            border-radius:999px;
-            background:#eef2ff;
-            border:1px solid #dce4ff;
-            color:#536fca;
-            font-size:.58rem;
-        }
-
-        [data-testid="stHorizontalBlock"] .stButton button{
+                        [data-testid="stHorizontalBlock"] .stButton button{
             min-width:38px;
             padding:.35rem .25rem !important;
             font-size:1rem !important;
         }
 
+
         /* ========================================================
-           AXION — visual base inspired by the supplied reference
+           AXION — cabeçalho principal
            ======================================================== */
 
-        .axion-header{
-            width:100%;
-            min-height:58px;
-            margin-bottom:.70rem;
-            padding:.70rem 1rem;
+        .axion-brand-line{
+            min-height:42px;
             display:flex;
             align-items:center;
-            justify-content:space-between;
-            gap:1rem;
-            background:#385474;
-            color:#ffffff;
-            border-radius:12px;
-            box-shadow:0 3px 12px rgba(56,84,116,.16);
-        }
-
-        .axion-header-logo{
-            display:flex;
-            align-items:center;
-            gap:.38rem;
-            min-width:0;
-        }
-
-        .axion-header-mark{
-            display:inline-flex;
-            align-items:center;
-            justify-content:center;
-            width:29px;
-            height:29px;
-            border-radius:8px;
-            background:rgba(255,255,255,.14);
-            border:1px solid rgba(255,255,255,.18);
-            font-size:.82rem;
-            font-weight:900;
-        }
-
-        .axion-header-name{
-            font-size:1.12rem;
-            font-weight:900;
-            letter-spacing:-.03em;
-        }
-
-        .axion-header-divider{
-            opacity:.55;
-            font-size:1rem;
-        }
-
-        .axion-header-title{
-            font-size:.94rem;
-            font-weight:650;
-            opacity:.92;
+            gap:.34rem;
+            padding:.22rem 0;
             white-space:nowrap;
         }
 
-        .axion-header-right{
-            display:flex;
+        .axion-brand-mark{
+            display:inline-flex;
             align-items:center;
-            gap:.35rem;
-            color:rgba(255,255,255,.82);
-            font-size:.62rem;
-            font-weight:750;
+            justify-content:center;
+            width:26px;
+            height:26px;
+            border-radius:8px;
+            background:#385474;
+            color:#ffffff;
+            font-size:.78rem;
+            font-weight:900;
+            box-shadow:0 2px 8px rgba(56,84,116,.18);
         }
 
-        .axion-header-online-dot{
-            width:7px;
-            height:7px;
-            border-radius:50%;
-            background:#81c784;
-            box-shadow:0 0 0 3px rgba(129,199,132,.12);
+        .axion-brand-name{
+            color:#172132;
+            font-size:1.10rem;
+            font-weight:900;
+            letter-spacing:-.035em;
+        }
+
+        .axion-brand-separator{
+            color:#a0a9b5;
+            font-size:.95rem;
+        }
+
+        .axion-brand-title{
+            color:#536fca;
+            font-size:.94rem;
+            font-weight:800;
         }
 
         [data-testid="stHorizontalBlock"] div.stButton>button{
             min-height:42px;
-            padding:.38rem .45rem !important;
+            padding:.35rem .45rem !important;
             border-radius:10px !important;
-            font-size:.70rem !important;
+            font-size:.69rem !important;
             font-weight:850 !important;
         }
 
@@ -466,80 +405,55 @@ st.markdown(
             background:#385474 !important;
             border-color:#385474 !important;
             color:#ffffff !important;
+            box-shadow:0 3px 9px rgba(56,84,116,.14);
         }
 
         [data-testid="stHorizontalBlock"] div.stButton>button[kind="secondary"]{
             background:#ffffff !important;
-            border-color:#d3dae3 !important;
+            border-color:#d7dee7 !important;
             color:#385474 !important;
         }
 
+        [data-testid="stHorizontalBlock"] div.stButton>button:hover{
+            border-color:#8da0b2 !important;
+            background:#f6f8fa !important;
+        }
+
         .account-line{
-            min-height:28px;
+            min-height:38px;
             display:flex;
             align-items:center;
-            gap:.50rem;
+            gap:.48rem;
+            padding:.18rem .40rem;
             color:#344054;
-            font-size:.70rem;
+            font-size:.69rem;
         }
 
         .account-line span{
-            padding:.16rem .40rem;
+            padding:.15rem .40rem;
             border-radius:999px;
             background:#eef2ff;
             border:1px solid #dce4ff;
             color:#536fca;
-            font-size:.58rem;
+            font-size:.56rem;
             font-weight:850;
         }
 
-        .kpi{
-            background:#ffffff;
-            border:1px solid #e2e8f0;
-            border-radius:12px;
-            overflow:hidden;
-            padding:0 !important;
-            min-height:96px;
-            box-shadow:0 4px 12px rgba(0,0,0,.05);
+        @media(max-width:900px){
+            .axion-brand-line{
+                min-height:38px;
+            }
+
+            .axion-brand-title{
+                font-size:.78rem;
+            }
+
+            .axion-brand-name{
+                font-size:1rem;
+            }
         }
 
-        .kpi-top{
-            width:100%;
-            height:7px;
-        }
-
-        .kpi-blue .kpi-top{background:#385474}
-        .kpi-green .kpi-top{background:#81c784}
-        .kpi-red .kpi-top{background:#e53935}
-
-        .kpi-content{
-            padding:.70rem 1rem .62rem;
-        }
-
-        .kpi .small{
-            color:#64748b !important;
-            font-size:.61rem !important;
-            font-weight:800 !important;
-            letter-spacing:.04em;
-        }
-
-        .kpi .kpi-value{
-            color:#1e293b;
-            font-size:1.55rem;
-            line-height:1.05;
-            font-weight:900;
-            margin-top:.12rem;
-        }
-
-        .kpi-subtitle{
-            margin-top:.12rem;
-            color:#64748b;
-            font-size:.56rem;
-            font-weight:700;
-            text-transform:uppercase;
-        }
-
-        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}}
+{.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}}
         [data-testid="stPlotlyChart"]{
             background:#ffffff!important;
             border:1px solid #dfe4ea!important;
@@ -2611,41 +2525,39 @@ current_user_role = str(
 # ============================================================
 
 profile = st.session_state.user_profile or {}
+
 current_user_name = str(
     profile.get("nome")
     or profile.get("email")
     or "Usuário"
 )
+
 current_user_role = str(
     profile.get("perfil")
     or "Operador"
 )
 
-st.markdown(
-    """
-    <div class="axion-header">
-        <div class="axion-header-logo">
-            <span class="axion-header-mark">⌂</span>
-            <span class="axion-header-name">AXION</span>
-            <span class="axion-header-divider">|</span>
-            <span class="axion-header-title">Monitoramento Industrial</span>
-        </div>
-
-        <div class="axion-header-right">
-            <span class="axion-header-online-dot"></span>
-            Sistema
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-nav1, nav2, nav3, nav4, nav5 = st.columns(
-    [1, 1, 1, 1, 1],
+brand_col, home_col, details_col, reports_col, config_col, account_col = st.columns(
+    [4.5, 1, 1, 1, 1, 1],
     gap="small",
 )
 
-with nav1:
+with brand_col:
+    brand_html = (
+        '<div class="axion-brand-line">'
+        '<span class="axion-brand-mark">◈</span>'
+        '<span class="axion-brand-name">AXION</span>'
+        '<span class="axion-brand-separator">|</span>'
+        '<span class="axion-brand-title">Monitoramento Industrial</span>'
+        '</div>'
+    )
+
+    st.markdown(
+        brand_html,
+        unsafe_allow_html=True,
+    )
+
+with home_col:
     if st.button(
         "⌂  Início",
         key="nav_dashboard",
@@ -2658,11 +2570,11 @@ with nav1:
         st.session_state.view = "dashboard"
         st.rerun()
 
-with nav2:
+with details_col:
     if st.button(
         "▤  Detalhes",
         key="nav_details",
-        help="Detalhes",
+        help="Detalhes dos equipamentos",
         use_container_width=True,
         type="primary"
         if st.session_state.view == "details"
@@ -2671,11 +2583,11 @@ with nav2:
         st.session_state.view = "details"
         st.rerun()
 
-with nav3:
+with reports_col:
     if st.button(
         "▥  Relatórios",
         key="nav_reports",
-        help="Relatórios",
+        help="Relatórios de serviço",
         use_container_width=True,
         type="primary"
         if st.session_state.view == "reports"
@@ -2684,7 +2596,7 @@ with nav3:
         st.session_state.view = "reports"
         st.rerun()
 
-with nav4:
+with config_col:
     if allowed_profiles(
         "Administrador",
         "Gerente",
@@ -2693,7 +2605,7 @@ with nav4:
         if st.button(
             "⚙  Configuração",
             key="nav_config",
-            help="Configuração",
+            help="Configurações",
             use_container_width=True,
             type="primary"
             if st.session_state.view == "config"
@@ -2702,7 +2614,7 @@ with nav4:
             st.session_state.view = "config"
             st.rerun()
 
-with nav5:
+with account_col:
     if st.button(
         "●  Conta",
         key="nav_account",
@@ -2715,43 +2627,42 @@ with nav5:
         )
 
 if st.session_state.get("show_account_menu", False):
+    account_user_col, account_users_col, account_logout_col = st.columns(
+        [5, 1.2, 1],
+        gap="small",
+    )
 
-    with st.container(border=True):
-
-        account_user, account_users, account_logout = st.columns(
-            [5, 1.2, 1],
-            gap="small",
+    with account_user_col:
+        account_html = (
+            '<div class="account-line">'
+            f'<b>{current_user_name}</b>'
+            f'<span>{current_user_role}</span>'
+            '</div>'
         )
 
-        with account_user:
-            st.markdown(
-                f"""
-                <div class="account-line">
-                    <b>{current_user_name}</b>
-                    <span>{current_user_role}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        st.markdown(
+            account_html,
+            unsafe_allow_html=True,
+        )
 
-        with account_users:
-            if allowed_profiles("Administrador"):
-                if st.button(
-                    "Usuários",
-                    key="account_users",
-                    use_container_width=True,
-                ):
-                    st.session_state.view = "users"
-                    st.session_state.show_account_menu = False
-                    st.rerun()
-
-        with account_logout:
+    with account_users_col:
+        if allowed_profiles("Administrador"):
             if st.button(
-                "Sair",
-                key="account_logout",
+                "Usuários",
+                key="account_users",
                 use_container_width=True,
             ):
-                logout()
+                st.session_state.view = "users"
+                st.session_state.show_account_menu = False
+                st.rerun()
+
+    with account_logout_col:
+        if st.button(
+            "Sair",
+            key="account_logout",
+            use_container_width=True,
+        ):
+            logout()
 
 # ============================================================
 # DADOS ATUAIS
@@ -2891,13 +2802,9 @@ if st.session_state.view == "dashboard":
         with k1:
             st.markdown(
                 f"""
-                <div class="kpi kpi-blue">
-                    <div class="kpi-top"></div>
-                    <div class="kpi-content">
-                        <div class="small">DISPOSITIVOS</div>
-                        <div class="kpi-value">{total}</div>
-                        <div class="kpi-subtitle">{total} DISPOSITIVO(S) CADASTRADO(S)</div>
-                    </div>
+                <div class="kpi">
+                    <div class="small">DISPOSITIVOS</div>
+                    <div class="kpi-value">{total}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2906,13 +2813,9 @@ if st.session_state.view == "dashboard":
         with k2:
             st.markdown(
                 f"""
-                <div class="kpi kpi-green">
-                    <div class="kpi-top"></div>
-                    <div class="kpi-content">
-                        <div class="small">ONLINE</div>
-                        <div class="kpi-value" style="color:#2e7d32;">{online}</div>
-                        <div class="kpi-subtitle">{online} DISPOSITIVO(S) ONLINE</div>
-                    </div>
+                <div class="kpi">
+                    <div class="small">ONLINE</div>
+                    <div class="kpi-value" style="color:#22c55e;">{online}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -2921,13 +2824,9 @@ if st.session_state.view == "dashboard":
         with k3:
             st.markdown(
                 f"""
-                <div class="kpi kpi-red">
-                    <div class="kpi-top"></div>
-                    <div class="kpi-content">
-                        <div class="small">ALARMES ATIVOS</div>
-                        <div class="kpi-value" style="color:#d32f2f;">{alarms}</div>
-                        <div class="kpi-subtitle">{alarms} ALARME(S) ATIVO(S)</div>
-                    </div>
+                <div class="kpi">
+                    <div class="small">ALARMES</div>
+                    <div class="kpi-value" style="color:#ff626b;">{alarms}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -4197,10 +4096,31 @@ elif st.session_state.view == "users":
         unsafe_allow_html=True,
     )
 
-    st.info(
-        "As senhas são administradas pelo Supabase Auth. "
-        "A tabela de perfis não armazena senhas."
+    st.caption(
+        "Gerencie usuários, perfis, ativação e redefinição de senha."
     )
+
+    if st.session_state.get("users_feedback"):
+        feedback = st.session_state.pop(
+            "users_feedback"
+        )
+
+        feedback_type = str(
+            feedback.get("type", "success")
+        )
+
+        feedback_message = str(
+            feedback.get("message", "")
+        )
+
+        if feedback_type == "error":
+            st.error(
+                feedback_message
+            )
+        else:
+            st.success(
+                feedback_message
+            )
 
     with st.expander("➕ Cadastrar usuário", expanded=False):
 
@@ -4278,7 +4198,13 @@ elif st.session_state.view == "users":
                             else "Resposta inválida."
                         )
 
-                    st.success("Usuário criado com sucesso.")
+                    st.session_state.users_feedback = {
+                        "type": "success",
+                        "message": (
+                            f"Usuário {user_name.strip()} "
+                            "foi criado com sucesso."
+                        ),
+                    }
                     st.rerun()
 
                 except Exception as exc:
@@ -4422,9 +4348,13 @@ elif st.session_state.view == "users":
                                     else "Resposta inválida."
                                 )
 
-                            st.success(
-                                "Usuário atualizado."
-                            )
+                            st.session_state.users_feedback = {
+                                "type": "success",
+                                "message": (
+                                    f"Usuário {name} foi atualizado "
+                                    "com sucesso."
+                                ),
+                            }
 
                             st.session_state.pop(
                                 "edit_user_id",
@@ -4501,9 +4431,13 @@ elif st.session_state.view == "users":
                                         else "Resposta inválida."
                                     )
 
-                                st.success(
-                                    "Senha redefinida com sucesso."
-                                )
+                                st.session_state.users_feedback = {
+                                    "type": "success",
+                                    "message": (
+                                        f"Senha de {name} "
+                                        "redefinida com sucesso."
+                                    ),
+                                }
 
                                 st.session_state.pop(
                                     "reset_user_id",
