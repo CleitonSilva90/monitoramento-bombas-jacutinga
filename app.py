@@ -115,6 +115,16 @@ def get_current_user_profile():
         return None
 
     try:
+        refresh_result = client.auth.refresh_session()
+
+        if refresh_result and refresh_result.session:
+            st.session_state.auth_session = {
+                "access_token": refresh_result.session.access_token,
+                "refresh_token": refresh_result.session.refresh_token,
+            }
+
+            client = get_authenticated_supabase()
+
         user = client.auth.get_user().user
 
         response = (
@@ -323,6 +333,53 @@ st.markdown(
         .compact-gauge-range{display:flex;justify-content:space-between;margin-top:.24rem;color:#657183;font-size:.58rem;font-weight:800}
         div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
         [data-testid="stForm"] label,[data-testid="stForm"] label p,[data-testid="stForm"] label span{color:#4c5665!important;font-weight:750!important}[data-testid="stExpander"]{background:#fff;border:1px solid #d9dfe6;border-radius:11px}[data-testid="stExpander"] summary{color:#263242!important;font-weight:800!important}
+
+        .top-brand{
+            background:#ffffff;
+            border:1px solid #d8dee6;
+            border-radius:12px;
+            padding:.55rem .70rem;
+            box-shadow:0 3px 12px rgba(31,41,55,.035);
+        }
+
+        .top-brand-title{
+            color:#162033;
+            font-size:1.05rem;
+            font-weight:900;
+            line-height:1.05;
+            white-space:nowrap;
+        }
+
+        .top-brand-title span{
+            color:#536fca;
+        }
+
+        .account-chip{
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            gap:.45rem;
+            padding:.35rem .50rem;
+            color:#344054;
+            font-size:.68rem;
+            font-weight:800;
+        }
+
+        .account-chip b{
+            padding:.16rem .38rem;
+            border-radius:999px;
+            background:#eef2ff;
+            border:1px solid #dce4ff;
+            color:#536fca;
+            font-size:.58rem;
+        }
+
+        [data-testid="stHorizontalBlock"] .stButton button{
+            min-width:38px;
+            padding:.35rem .25rem !important;
+            font-size:1rem !important;
+        }
+
         @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}}
         [data-testid="stPlotlyChart"]{
             background:#ffffff!important;
@@ -2375,20 +2432,29 @@ def generate_pdf(device_id, row, history):
 # NAVEGAÇÃO
 # ============================================================
 
-top = st.columns([2, 1, 1, 1, 1])
+# ============================================================
+# CABEÇALHO / NAVEGAÇÃO
+# ============================================================
+
+profile = st.session_state.user_profile or {}
+current_user_name = str(
+    profile.get("nome")
+    or profile.get("email")
+    or "Usuário"
+)
+current_user_role = str(
+    profile.get("perfil")
+    or "Operador"
+)
+
+top = st.columns([5.2, .65, .65, .65, .65, .65])
 
 with top[0]:
-    profile = st.session_state.user_profile or {}
-
     st.markdown(
-        f"""
-        <div class="top-card">
-            <div style="font-size:1.35rem;font-weight:900;color:#162033;">
-                AXION <span style="color:#536fca;">| Monitoramento Industrial</span>
-            </div>
-            <div class="muted">
-                {profile.get("nome") or profile.get("email") or "Usuário"}
-                • {profile.get("perfil") or "Operador"}
+        """
+        <div class="top-brand">
+            <div class="top-brand-title">
+                AXION <span>| Monitoramento Industrial</span>
             </div>
         </div>
         """,
@@ -2397,7 +2463,9 @@ with top[0]:
 
 with top[1]:
     if st.button(
-        "🏠  Dashboard",
+        "⌂",
+        key="nav_dashboard",
+        help="Dashboard",
         use_container_width=True,
         type="primary" if st.session_state.view == "dashboard" else "secondary",
     ):
@@ -2406,7 +2474,9 @@ with top[1]:
 
 with top[2]:
     if st.button(
-        "📊  Detalhes",
+        "▥",
+        key="nav_details",
+        help="Detalhes",
         use_container_width=True,
         type="primary" if st.session_state.view == "details" else "secondary",
     ):
@@ -2415,7 +2485,9 @@ with top[2]:
 
 with top[3]:
     if st.button(
-        "📄  Relatórios",
+        "▤",
+        key="nav_reports",
+        help="Relatórios",
         use_container_width=True,
         type="primary" if st.session_state.view == "reports" else "secondary",
     ):
@@ -2429,51 +2501,64 @@ with top[4]:
         "Técnico",
     ):
         if st.button(
-            "⚙️  Configuração",
+            "⚙",
+            key="nav_config",
+            help="Configuração",
             use_container_width=True,
             type="primary" if st.session_state.view == "config" else "secondary",
         ):
             st.session_state.view = "config"
             st.rerun()
 
-st.caption(
-    f"Atualização automática a cada {REFRESH_SECONDS}s • "
-    f"Última atualização: {format_local_datetime(datetime.now(timezone.utc))}"
-)
+with top[5]:
+    if st.button(
+        "●",
+        key="nav_account",
+        help=f"{current_user_name} • {current_user_role}",
+        use_container_width=True,
+    ):
+        st.session_state.show_account_menu = not st.session_state.get(
+            "show_account_menu",
+            False,
+        )
 
-if allowed_profiles("Administrador"):
+if st.session_state.get("show_account_menu", False):
+    account_left, account_user, account_users, account_logout = st.columns(
+        [5, 2, 1, 1]
+    )
 
-    user_col, logout_col = st.columns([1, 1])
+    with account_left:
+        st.empty()
 
-    with user_col:
-        if st.button(
-            "👤  Usuários",
-            use_container_width=True,
-            type="primary" if st.session_state.view == "users" else "secondary",
-        ):
-            st.session_state.view = "users"
-            st.rerun()
+    with account_user:
+        st.markdown(
+            f"""
+            <div class="account-chip">
+                <span>{current_user_name}</span>
+                <b>{current_user_role}</b>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    with logout_col:
+    with account_users:
+        if allowed_profiles("Administrador"):
+            if st.button(
+                "Usuários",
+                key="account_users",
+                use_container_width=True,
+            ):
+                st.session_state.view = "users"
+                st.session_state.show_account_menu = False
+                st.rerun()
+
+    with account_logout:
         if st.button(
             "Sair",
+            key="account_logout",
             use_container_width=True,
         ):
             logout()
-
-else:
-
-    if st.button(
-        "Sair",
-        key="logout_current_user",
-    ):
-        logout()
-
-st.caption(
-    f"Atualização automática a cada {REFRESH_SECONDS}s • "
-    f"Última atualização: {format_local_datetime(datetime.now(timezone.utc))}"
-)
-
 
 # ============================================================
 # DADOS ATUAIS
