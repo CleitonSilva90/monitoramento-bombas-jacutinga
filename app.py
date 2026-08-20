@@ -159,6 +159,7 @@ def logout():
 
     st.session_state.auth_session = None
     st.session_state.user_profile = None
+    st.cache_data.clear()
     st.session_state.view = "dashboard"
     st.rerun()
 
@@ -235,6 +236,9 @@ if not st.session_state.auth_session:
                     "access_token": session.access_token,
                     "refresh_token": session.refresh_token,
                 }
+
+                # Não reutilizar dados carregados antes da autenticação.
+                st.cache_data.clear()
 
                 st.session_state.user_profile = None
                 st.rerun()
