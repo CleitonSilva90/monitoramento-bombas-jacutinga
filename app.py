@@ -4,6 +4,7 @@
 
 import math
 import io
+import json
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -45,17 +46,42 @@ MCA_PER_BAR = 10.197
 # ============================================================
 
 @st.cache_resource
-def init_supabase():
+def get_supabase_config():
     try:
-        url = st.secrets["supabase_url"]
-        key = st.secrets["supabase_key"]
-        return create_client(url, key)
+        return (
+            st.secrets["supabase_url"],
+            st.secrets["supabase_key"],
+        )
     except Exception as exc:
-        st.error(f"Não foi possível conectar ao Supabase: {exc}")
+        st.error(
+            f"Não foi possível carregar a configuração do Supabase: {exc}"
+        )
+        return None, None
+
+
+def get_authenticated_supabase():
+    session = st.session_state.get("auth_session")
+
+    if not session:
+        return None
+
+    url, key = get_supabase_config()
+
+    if not url or not key:
+        return None
+
+    try:
+        client = create_client(url, key)
+        client.auth.set_session(
+            session["access_token"],
+            session["refresh_token"],
+        )
+        return client
+    except Exception:
         return None
 
 
-supabase = init_supabase()
+supabase = None
 
 
 # ============================================================
@@ -70,6 +96,189 @@ if "device_id" not in st.session_state:
 
 if "last_refresh" not in st.session_state:
     st.session_state.last_refresh = datetime.now().timestamp()
+
+if "auth_session" not in st.session_state:
+    st.session_state.auth_session = None
+
+if "user_profile" not in st.session_state:
+    st.session_state.user_profile = None
+
+
+# ============================================================
+# AUTENTICAÇÃO
+# ============================================================
+
+def get_current_user_profile():
+    client = get_authenticated_supabase()
+
+    if client is None:
+        return None
+
+    try:
+        refresh_result = client.auth.refresh_session()
+
+        if refresh_result and refresh_result.session:
+            st.session_state.auth_session = {
+                "access_token": refresh_result.session.access_token,
+                "refresh_token": refresh_result.session.refresh_token,
+            }
+
+            client = get_authenticated_supabase()
+
+        user = client.auth.get_user().user
+
+        response = (
+            client
+            .table("perfis_usuarios")
+            .select("id,nome,email,perfil,ativo")
+            .eq("id", user.id)
+            .limit(1)
+            .execute()
+        )
+
+        rows = response.data or []
+        return rows[0] if rows else None
+
+    except Exception:
+        return None
+
+
+def allowed_profiles(*profiles):
+    profile = st.session_state.get("user_profile")
+
+    if not profile or not bool(profile.get("ativo", True)):
+        return False
+
+    current = str(
+        profile.get("perfil", "")
+    ).strip().lower()
+
+    return current in {
+        str(item).strip().lower()
+        for item in profiles
+    }
+
+
+def logout():
+    try:
+        client = get_authenticated_supabase()
+        if client is not None:
+            client.auth.sign_out()
+    except Exception:
+        pass
+
+    st.session_state.auth_session = None
+    st.session_state.user_profile = None
+    st.cache_data.clear()
+    st.session_state.view = "dashboard"
+    st.rerun()
+
+
+# ============================================================
+# LOGIN
+# ============================================================
+
+if not st.session_state.auth_session:
+
+    login_card_html = (
+        '<div style="max-width:440px;margin:9vh auto 1rem;'
+        'padding:30px;background:#ffffff;border:1px solid #d9dfe6;'
+        'border-radius:18px;box-shadow:0 10px 32px rgba(31,41,55,.08);">'
+        '<div style="color:#162033;font-size:1.75rem;font-weight:900;">AXION</div>'
+        '<div style="margin-top:4px;color:#7a8594;font-size:.84rem;">'
+        'Monitoramento Industrial'
+        '</div>'
+        '</div>'
+    )
+
+    st.markdown(
+        login_card_html,
+        unsafe_allow_html=True,
+    )
+
+    with st.form("login_form"):
+
+        login_email = st.text_input(
+            "E-mail",
+            placeholder="usuario@empresa.com",
+        )
+
+        login_password = st.text_input(
+            "Senha",
+            type="password",
+        )
+
+        login_submit = st.form_submit_button(
+            "Entrar",
+            type="primary",
+            use_container_width=True,
+        )
+
+    if login_submit:
+
+        if not login_email.strip() or not login_password:
+
+            st.error("Informe e-mail e senha.")
+
+        else:
+
+            try:
+                url, key = get_supabase_config()
+
+                login_client = create_client(
+                    url,
+                    key,
+                )
+
+                response = login_client.auth.sign_in_with_password({
+                    "email": login_email.strip(),
+                    "password": login_password,
+                })
+
+                session = response.session
+
+                if not session:
+                    raise RuntimeError(
+                        "O Supabase não retornou uma sessão."
+                    )
+
+                st.session_state.auth_session = {
+                    "access_token": session.access_token,
+                    "refresh_token": session.refresh_token,
+                }
+
+                # Não reutilizar dados carregados antes da autenticação.
+                st.cache_data.clear()
+
+                st.session_state.user_profile = None
+                st.rerun()
+
+            except Exception:
+
+                st.error(
+                    "Não foi possível entrar. Verifique o e-mail e a senha."
+                )
+
+    st.stop()
+
+
+st.session_state.user_profile = (
+    st.session_state.user_profile
+    or get_current_user_profile()
+)
+
+if not st.session_state.user_profile:
+    logout()
+
+if not bool(
+    st.session_state.user_profile.get(
+        "ativo",
+        True,
+    )
+):
+    logout()
+
+supabase = get_authenticated_supabase()
 
 
 # ============================================================
@@ -115,10 +324,63 @@ st.markdown(
         [data-testid="stVerticalBlockBorderWrapper"]>div{padding-top:.65rem!important;padding-bottom:.65rem!important}[data-testid="stVerticalBlockBorderWrapper"] h3{color:#162033!important;font-size:1.16rem!important;font-weight:900!important}[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stCaptionContainer"]{color:#798594!important}[data-testid="stVerticalBlockBorderWrapper"] hr{border-color:#e5e8ed!important;margin:.55rem 0 .7rem!important}
         [data-testid="stMetricLabel"]{color:#707c8b!important;font-size:.65rem!important;font-weight:800!important}[data-testid="stMetricValue"]{color:#172131!important;font-size:1.05rem!important;font-weight:900!important}[data-testid="stMetricDelta"]{color:#7b8594!important;font-size:.64rem!important}
         .pill-online,.pill-offline,.pill-alarm{display:inline-flex;align-items:center;padding:.3rem .58rem;border-radius:999px;font-size:.63rem;font-weight:850}.pill-online{color:#21825b;background:#e6f7ef;border:1px solid #bce7d1}.pill-offline{color:#5f6b79;background:#f1f3f5;border:1px solid #dfe4e9}.pill-alarm{color:#b43b44;background:#fdebec;border:1px solid #f2c4c7}
-        .gauge-card{width:100%;min-height:288px;background:#fff;border:1px solid #e0e5eb;border-radius:14px;padding:.55rem .55rem .35rem;box-shadow:0 3px 11px rgba(31,41,55,.035);overflow:hidden}.gauge-title{text-align:center;color:#455264;font-size:.92rem;font-weight:900;min-height:2.3em;display:flex;align-items:center;justify-content:center}.gauge-svg{display:block;width:100%;max-width:290px;margin:0 auto;height:auto;pointer-events:none;user-select:none}.gauge-value{text-align:center;margin-top:-.38rem;color:#182233;font-size:1.52rem;font-weight:900;letter-spacing:-.03em}.gauge-range{display:grid;grid-template-columns:repeat(3,1fr);color:#465264;font-size:.74rem;font-weight:850;padding:.08rem .25rem .12rem}.gauge-range span:nth-child(2){text-align:center}.gauge-range span:last-child{text-align:right}
+        .compact-gauge{width:100%;background:#fff;border:1px solid #e0e5eb;border-radius:12px;padding:.42rem .56rem .38rem;box-shadow:0 2px 9px rgba(31,41,55,.035)}
+        .compact-gauge-head{display:flex;align-items:baseline;justify-content:space-between;gap:.55rem}
+        .compact-gauge-title{color:#4a586a;font-size:.86rem;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .compact-gauge-value{color:#172132;font-size:1.18rem;font-weight:900;white-space:nowrap}
+        .compact-gauge-track{height:7px;margin-top:.34rem;border-radius:999px;background:#e7ebef;overflow:hidden}
+        .compact-gauge-fill{height:100%;border-radius:999px;min-width:2%}
+        .compact-gauge-range{display:flex;justify-content:space-between;margin-top:.24rem;color:#657183;font-size:.58rem;font-weight:800}
         div[data-baseweb="select"]>div,div[data-baseweb="input"]>div,textarea,input{background:#fff!important;color:#1f2937!important;border-color:#cbd4de!important}div[data-baseweb="select"] span,div[data-baseweb="select"] input{color:#1f2937!important}
         [data-testid="stForm"] label,[data-testid="stForm"] label p,[data-testid="stForm"] label span{color:#4c5665!important;font-weight:750!important}[data-testid="stExpander"]{background:#fff;border:1px solid #d9dfe6;border-radius:11px}[data-testid="stExpander"] summary{color:#263242!important;font-weight:800!important}
-        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}.gauge-card{min-height:252px}.gauge-value{font-size:1.22rem}}
+
+        .top-brand{
+            background:#ffffff;
+            border:1px solid #d8dee6;
+            border-radius:12px;
+            padding:.55rem .70rem;
+            box-shadow:0 3px 12px rgba(31,41,55,.035);
+        }
+
+        .top-brand-title{
+            color:#162033;
+            font-size:1.05rem;
+            font-weight:900;
+            line-height:1.05;
+            white-space:nowrap;
+        }
+
+        .top-brand-title span{
+            color:#536fca;
+        }
+
+        .account-chip{
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            gap:.45rem;
+            padding:.35rem .50rem;
+            color:#344054;
+            font-size:.68rem;
+            font-weight:800;
+        }
+
+        .account-chip b{
+            padding:.16rem .38rem;
+            border-radius:999px;
+            background:#eef2ff;
+            border:1px solid #dce4ff;
+            color:#536fca;
+            font-size:.58rem;
+        }
+
+        [data-testid="stHorizontalBlock"] .stButton button{
+            min-width:38px;
+            padding:.35rem .25rem !important;
+            font-size:1rem !important;
+        }
+
+        @media(max-width:900px){.block-container{padding:.55rem .5rem 1.2rem}.brand-title{font-size:1.08rem}.page-title{font-size:1.3rem}.kpi{min-height:76px}.kpi-value{font-size:1.42rem}}
         [data-testid="stPlotlyChart"]{
             background:#ffffff!important;
             border:1px solid #dfe4ea!important;
@@ -2170,16 +2432,30 @@ def generate_pdf(device_id, row, history):
 # NAVEGAÇÃO
 # ============================================================
 
-top = st.columns([2, 1, 1, 1, 1])
+# ============================================================
+# CABEÇALHO / NAVEGAÇÃO
+# ============================================================
+
+profile = st.session_state.user_profile or {}
+current_user_name = str(
+    profile.get("nome")
+    or profile.get("email")
+    or "Usuário"
+)
+current_user_role = str(
+    profile.get("perfil")
+    or "Operador"
+)
+
+top = st.columns([5.2, .65, .65, .65, .65, .65])
 
 with top[0]:
     st.markdown(
         """
-        <div class="top-card">
-            <div style="font-size:2rem;font-weight:850;">
-                AXION <span style="color:#3b82f6;">| Monitoramento Industrial</span>
+        <div class="top-brand">
+            <div class="top-brand-title">
+                AXION <span>| Monitoramento Industrial</span>
             </div>
-            <div class="muted">Telemetria via HTTPS → Supabase • Atualização automática: 30 s</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2187,7 +2463,9 @@ with top[0]:
 
 with top[1]:
     if st.button(
-        "🏠  Dashboard",
+        "⌂",
+        key="nav_dashboard",
+        help="Dashboard",
         use_container_width=True,
         type="primary" if st.session_state.view == "dashboard" else "secondary",
     ):
@@ -2196,7 +2474,9 @@ with top[1]:
 
 with top[2]:
     if st.button(
-        "📊  Detalhes",
+        "▥",
+        key="nav_details",
+        help="Detalhes",
         use_container_width=True,
         type="primary" if st.session_state.view == "details" else "secondary",
     ):
@@ -2205,7 +2485,9 @@ with top[2]:
 
 with top[3]:
     if st.button(
-        "📄  Relatórios",
+        "▤",
+        key="nav_reports",
+        help="Relatórios",
         use_container_width=True,
         type="primary" if st.session_state.view == "reports" else "secondary",
     ):
@@ -2213,19 +2495,70 @@ with top[3]:
         st.rerun()
 
 with top[4]:
-    if st.button(
-        "⚙️  Configuração",
-        use_container_width=True,
-        type="primary" if st.session_state.view == "config" else "secondary",
+    if allowed_profiles(
+        "Administrador",
+        "Gerente",
+        "Técnico",
     ):
-        st.session_state.view = "config"
-        st.rerun()
+        if st.button(
+            "⚙",
+            key="nav_config",
+            help="Configuração",
+            use_container_width=True,
+            type="primary" if st.session_state.view == "config" else "secondary",
+        ):
+            st.session_state.view = "config"
+            st.rerun()
 
-st.caption(
-    f"Atualização automática a cada {REFRESH_SECONDS}s • "
-    f"Última atualização: {format_local_datetime(datetime.now(timezone.utc))}"
-)
+with top[5]:
+    if st.button(
+        "●",
+        key="nav_account",
+        help=f"{current_user_name} • {current_user_role}",
+        use_container_width=True,
+    ):
+        st.session_state.show_account_menu = not st.session_state.get(
+            "show_account_menu",
+            False,
+        )
 
+if st.session_state.get("show_account_menu", False):
+    account_left, account_user, account_users, account_logout = st.columns(
+        [5, 2, 1, 1]
+    )
+
+    with account_left:
+        st.empty()
+
+    with account_user:
+        st.markdown(
+            f"""
+            <div class="account-chip">
+                <span>{current_user_name}</span>
+                <b>{current_user_role}</b>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with account_users:
+        if allowed_profiles("Administrador"):
+            if st.button(
+                "Usuários",
+                key="account_users",
+                use_container_width=True,
+            ):
+                st.session_state.view = "users"
+                st.session_state.show_account_menu = False
+                st.rerun()
+
+    with account_logout:
+        if st.button(
+            "Sair",
+            key="account_logout",
+            use_container_width=True,
+        ):
+            logout()
 
 # ============================================================
 # DADOS ATUAIS
@@ -2236,31 +2569,50 @@ channel_configs = load_channel_configs()
 
 
 
-def analog_gauge_html(title, value, unit, scale_min, scale_max, alarm_min=None, alarm_max=None):
+def analog_gauge_html(
+    title,
+    value,
+    unit,
+    scale_min,
+    scale_max,
+    alarm_min=None,
+    alarm_max=None,
+):
     raw_value = safe_float(value)
     smin = safe_float(scale_min, 0)
     smax = safe_float(scale_max, 100)
-    if not np.isfinite(smin): smin = 0.0
-    if not np.isfinite(smax) or smax <= smin: smax = smin + 1.0
-    if not np.isfinite(raw_value): raw_value = smin
-    pct = max(0.0, min(1.0, (raw_value-smin)/(smax-smin)))
-    alarm_low = safe_float(alarm_min); alarm_high = safe_float(alarm_max)
+
+    if not np.isfinite(smin):
+        smin = 0.0
+    if not np.isfinite(smax) or smax <= smin:
+        smax = smin + 1.0
+    if not np.isfinite(raw_value):
+        raw_value = smin
+
+    pct = max(0.0, min(1.0, (raw_value - smin) / (smax - smin)))
+
+    alarm_low = safe_float(alarm_min)
+    alarm_high = safe_float(alarm_max)
     critical = ((np.isfinite(alarm_low) and raw_value < alarm_low) or
                 (np.isfinite(alarm_high) and raw_value > alarm_high))
+
     color = "#e45b63" if critical else "#39b985"
-    radius=82; circumference=math.pi*radius; dash=circumference*pct; gap=circumference-dash
-    mid=(smin+smax)/2
-    return f"""<div class="gauge-card">
-      <div class="gauge-title">{title}</div>
-      <svg class="gauge-svg" viewBox="0 0 240 155" aria-label="{title}">
-        <path d="M 38 118 A 82 82 0 0 1 202 118" fill="none" stroke="#dfe4ea" stroke-width="18" stroke-linecap="round"/>
-        <path d="M 38 118 A 82 82 0 0 1 202 118" fill="none" stroke="{color}" stroke-width="18" stroke-linecap="round" stroke-dasharray="{dash:.2f} {gap:.2f}" pathLength="{circumference:.2f}"/>
-      </svg>
-      <div class="gauge-value">{format_value(raw_value, 2, unit)}</div>
-      <div class="gauge-range"><span>{format_value(smin,0,"")}</span><span>{format_value(mid,0,"")}</span><span>{format_value(smax,0,"")}</span></div>
-    </div>"""
 
-
+    return f'''
+    <div class="compact-gauge">
+        <div class="compact-gauge-head">
+            <div class="compact-gauge-title">{title}</div>
+            <div class="compact-gauge-value">{format_value(raw_value, 2, unit)}</div>
+        </div>
+        <div class="compact-gauge-track">
+            <div class="compact-gauge-fill" style="width:{pct * 100:.1f}%;background:{color};"></div>
+        </div>
+        <div class="compact-gauge-range">
+            <span>{format_value(smin, 0, "")}</span>
+            <span>{format_value(smax, 0, "")}</span>
+        </div>
+    </div>
+    '''
 
 def render_alarm_card(
     grandeza,
@@ -2637,16 +2989,15 @@ if st.session_state.view == "dashboard":
 
                             if active_gauges:
 
-                                # No máximo 3 gauges por linha.
-                                # Se existirem 4, 5, 6... AIs ativas,
-                                # novas linhas são criadas automaticamente.
+                                # Quatro gauges por linha deixam o cartão
+                                # muito mais compacto quando existem várias AIs.
                                 for gauge_start in range(
                                     0,
                                     len(active_gauges),
-                                    3
+                                    4
                                 ):
                                     gauge_row = active_gauges[
-                                        gauge_start:gauge_start + 3
+                                        gauge_start:gauge_start + 4
                                     ]
 
                                     gauge_columns = st.columns(
@@ -2671,10 +3022,11 @@ if st.session_state.view == "dashboard":
                                             # Min/max atuais do período
                                             # ficam abaixo do mostrador,
                                             # sem depender da aba Relatórios.
-                                            history_short = load_history(
-                                                device_id,
-                                                7
-                                            )
+                                            if "history_short" not in locals():
+                                                history_short = load_history(
+                                                    device_id,
+                                                    7
+                                                )
 
                                             values = pd.Series(
                                                 dtype=float
@@ -2715,64 +3067,64 @@ if st.session_state.view == "dashboard":
                                                     ">
                                                         <div>
                                                             <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Média</div>
-                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{avg:.2f} {item["unit"]}</div>
+                                                            <div style="color:#344054;font-size:.74rem;font-weight:900;">{avg:.2f} {item["unit"]}</div>
                                                         </div>
                                                         <div>
                                                             <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Mín.</div>
-                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{minimum:.2f} {item["unit"]}</div>
+                                                            <div style="color:#344054;font-size:.74rem;font-weight:900;">{minimum:.2f} {item["unit"]}</div>
                                                         </div>
                                                         <div>
                                                             <div style="color:#4f5d6d;font-size:.70rem;font-weight:900;text-transform:uppercase;">Máx.</div>
-                                                            <div style="color:#263241;font-size:.86rem;font-weight:900;">{maximum:.2f} {item["unit"]}</div>
+                                                            <div style="color:#344054;font-size:.74rem;font-weight:900;">{maximum:.2f} {item["unit"]}</div>
                                                         </div>
                                                     </div>
                                                     """,
                                                     unsafe_allow_html=True,
                                                 )
 
-                                # ----------------------------
-                                # Alarmes ativos
-                                # ----------------------------
+                            # ----------------------------
+                            # Alarmes ativos
+                            # ----------------------------
 
-                                current_alarms = get_current_device_alarms(
-                                    row
+                            current_alarms = get_current_device_alarms(
+                                row
+                            )
+
+                            if not current_alarms.empty:
+                                st.markdown(
+                                    "<div class='small' style='margin-top:.55rem;'>ALARMES ATIVOS</div>",
+                                    unsafe_allow_html=True,
                                 )
 
-                                if not current_alarms.empty:
-                                    st.markdown(
-                                        "<div class='small' style='margin-top:.55rem;'>ALARMES ATIVOS</div>",
-                                        unsafe_allow_html=True,
+                                for _, alarm in current_alarms.iterrows():
+                                    value_text = format_value(
+                                        alarm.get("Valor"),
+                                        2,
+                                        alarm.get("Unidade", "")
                                     )
 
-                                    for _, alarm in current_alarms.iterrows():
-                                        value_text = format_value(
-                                            alarm.get("Valor"),
-                                            2,
-                                            alarm.get("Unidade", "")
-                                        )
+                                    limit_text = format_value(
+                                        alarm.get("Limite"),
+                                        2,
+                                        alarm.get("Unidade", "")
+                                    )
 
-                                        limit_text = format_value(
-                                            alarm.get("Limite"),
-                                            2,
-                                            alarm.get("Unidade", "")
-                                        )
+                                    if alarm.get("Valor") < alarm.get("Limite"):
+                                        reason = "Abaixo do limite mínimo"
+                                    else:
+                                        reason = "Acima do limite máximo"
 
-                                        if alarm.get("Valor") < alarm.get("Limite"):
-                                            reason = "Abaixo do limite mínimo"
-                                        else:
-                                            reason = "Acima do limite máximo"
+                                    when_text = format_local_datetime(
+                                        alarm.get("Data/Hora")
+                                    )
 
-                                        when_text = format_local_datetime(
-                                            alarm.get("Data/Hora")
-                                        )
-
-                                        render_alarm_card(
-                                            alarm.get("Grandeza", "Alarme"),
-                                            reason,
-                                            value_text,
-                                            limit_text,
-                                            when_text,
-                                        )
+                                    render_alarm_card(
+                                        alarm.get("Grandeza", "Alarme"),
+                                        reason,
+                                        value_text,
+                                        limit_text,
+                                        when_text,
+                                    )
 
                             # ----------------------------
                             # Vibração principal
@@ -3628,7 +3980,356 @@ elif st.session_state.view == "reports":
 # CONFIGURAÇÃO
 # ============================================================
 
+elif st.session_state.view == "users":
+
+    if not allowed_profiles("Administrador"):
+        st.error("Acesso restrito ao Administrador.")
+        st.stop()
+
+    st.markdown(
+        "<div class='page-kicker'>Administração</div>"
+        "<div class='page-title'>Usuários</div>",
+        unsafe_allow_html=True,
+    )
+
+    st.info(
+        "As senhas são administradas pelo Supabase Auth. "
+        "A tabela de perfis não armazena senhas."
+    )
+
+    with st.expander("➕ Cadastrar usuário", expanded=False):
+
+        with st.form("create_user_form"):
+
+            user_name = st.text_input(
+                "Nome",
+                placeholder="Ex.: João da Silva",
+            )
+
+            user_email = st.text_input(
+                "E-mail",
+                placeholder="usuario@empresa.com",
+            )
+
+            user_password = st.text_input(
+                "Senha inicial",
+                type="password",
+            )
+
+            user_role = st.selectbox(
+                "Perfil",
+                [
+                    "Operador",
+                    "Técnico",
+                    "Gerente",
+                    "Administrador",
+                ],
+            )
+
+            create_user = st.form_submit_button(
+                "Criar usuário",
+                type="primary",
+            )
+
+        if create_user:
+
+            if not user_name.strip():
+                st.error("Informe o nome.")
+
+            elif not user_email.strip():
+                st.error("Informe o e-mail.")
+
+            elif len(user_password) < 8:
+                st.error(
+                    "A senha inicial deve ter pelo menos 8 caracteres."
+                )
+
+            else:
+
+                try:
+
+                    response = supabase.functions.invoke(
+                        "admin-user-management",
+                        {
+                            "body": {
+                                "action": "create",
+                                "nome": user_name.strip(),
+                                "email": user_email.strip(),
+                                "password": user_password,
+                                "perfil": user_role,
+                            }
+                        },
+                    )
+
+                    data = getattr(response, "data", None)
+
+                    if isinstance(data, str):
+                        data = json.loads(data)
+
+                    if not isinstance(data, dict) or not data.get("ok"):
+                        raise RuntimeError(
+                            data.get("error")
+                            if isinstance(data, dict)
+                            else "Resposta inválida."
+                        )
+
+                    st.success("Usuário criado com sucesso.")
+                    st.rerun()
+
+                except Exception as exc:
+
+                    st.error("Não foi possível criar o usuário.")
+                    st.caption(str(exc))
+
+    try:
+
+        users_response = (
+            supabase
+            .table("perfis_usuarios")
+            .select("id,nome,email,perfil,ativo,created_at")
+            .order("nome")
+            .execute()
+        )
+
+        users = pd.DataFrame(
+            users_response.data or []
+        )
+
+    except Exception as exc:
+
+        st.error("Não foi possível carregar os usuários.")
+        st.caption(str(exc))
+        users = pd.DataFrame()
+
+    if users.empty:
+
+        st.info("Nenhum usuário cadastrado.")
+
+    else:
+
+        for _, user in users.iterrows():
+
+            uid = str(user.get("id"))
+            name = str(user.get("nome") or "")
+            email = str(user.get("email") or "")
+            role = str(user.get("perfil") or "Operador")
+            active = bool(user.get("ativo", True))
+
+            with st.container(border=True):
+
+                left, right = st.columns([4, 1])
+
+                with left:
+
+                    st.markdown(f"### {name}")
+
+                    st.caption(
+                        f"{email} • {role} • "
+                        f"{'Ativo' if active else 'Inativo'}"
+                    )
+
+                with right:
+
+                    if st.button(
+                        "Editar",
+                        key=f"edit_{uid}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.edit_user_id = uid
+                        st.rerun()
+
+                    if st.button(
+                        "Redefinir senha",
+                        key=f"reset_{uid}",
+                        use_container_width=True,
+                    ):
+                        st.session_state.reset_user_id = uid
+                        st.session_state.reset_user_name = name
+                        st.rerun()
+
+                if (
+                    st.session_state.get("edit_user_id")
+                    == uid
+                ):
+
+                    with st.form(f"edit_user_{uid}"):
+
+                        edited_role = st.selectbox(
+                            "Perfil",
+                            [
+                                "Operador",
+                                "Técnico",
+                                "Gerente",
+                                "Administrador",
+                            ],
+                            index=(
+                                [
+                                    "Operador",
+                                    "Técnico",
+                                    "Gerente",
+                                    "Administrador",
+                                ].index(role)
+                                if role in [
+                                    "Operador",
+                                    "Técnico",
+                                    "Gerente",
+                                    "Administrador",
+                                ]
+                                else 0
+                            ),
+                        )
+
+                        edited_active = st.checkbox(
+                            "Usuário ativo",
+                            value=active,
+                        )
+
+                        save_user_edit = st.form_submit_button(
+                            "Salvar alterações",
+                            type="primary",
+                        )
+
+                    if save_user_edit:
+
+                        try:
+
+                            response = supabase.functions.invoke(
+                                "admin-user-management",
+                                {
+                                    "body": {
+                                        "action": "update_profile",
+                                        "user_id": uid,
+                                        "perfil": edited_role,
+                                        "ativo": edited_active,
+                                    }
+                                },
+                            )
+
+                            data = getattr(response, "data", None)
+
+                            if isinstance(data, str):
+                                data = json.loads(data)
+
+                            if not isinstance(data, dict) or not data.get("ok"):
+                                raise RuntimeError(
+                                    data.get("error")
+                                    if isinstance(data, dict)
+                                    else "Resposta inválida."
+                                )
+
+                            st.success(
+                                "Usuário atualizado."
+                            )
+
+                            st.session_state.pop(
+                                "edit_user_id",
+                                None,
+                            )
+
+                            st.rerun()
+
+                        except Exception as exc:
+
+                            st.error(
+                                "Não foi possível atualizar o usuário."
+                            )
+                            st.caption(str(exc))
+
+                if (
+                    st.session_state.get("reset_user_id")
+                    == uid
+                ):
+
+                    with st.form(f"reset_password_{uid}"):
+
+                        new_password = st.text_input(
+                            "Nova senha",
+                            type="password",
+                        )
+
+                        new_password_confirm = st.text_input(
+                            "Confirmar nova senha",
+                            type="password",
+                        )
+
+                        reset_submit = st.form_submit_button(
+                            "Salvar nova senha",
+                            type="primary",
+                        )
+
+                    if reset_submit:
+
+                        if len(new_password) < 8:
+
+                            st.error(
+                                "A nova senha deve ter pelo menos 8 caracteres."
+                            )
+
+                        elif new_password != new_password_confirm:
+
+                            st.error("As senhas não coincidem.")
+
+                        else:
+
+                            try:
+
+                                response = supabase.functions.invoke(
+                                    "admin-user-management",
+                                    {
+                                        "body": {
+                                            "action": "reset_password",
+                                            "user_id": uid,
+                                            "password": new_password,
+                                        }
+                                    },
+                                )
+
+                                data = getattr(response, "data", None)
+
+                                if isinstance(data, str):
+                                    data = json.loads(data)
+
+                                if not isinstance(data, dict) or not data.get("ok"):
+                                    raise RuntimeError(
+                                        data.get("error")
+                                        if isinstance(data, dict)
+                                        else "Resposta inválida."
+                                    )
+
+                                st.success(
+                                    "Senha redefinida com sucesso."
+                                )
+
+                                st.session_state.pop(
+                                    "reset_user_id",
+                                    None,
+                                )
+
+                                st.rerun()
+
+                            except Exception as exc:
+
+                                st.error(
+                                    "Não foi possível redefinir a senha."
+                                )
+                                st.caption(str(exc))
+
+    st.stop()
+
+
 elif st.session_state.view == "config":
+
+    if not allowed_profiles(
+        "Administrador",
+        "Gerente",
+        "Técnico",
+    ):
+        st.error(
+            "Você não tem permissão para acessar esta área."
+        )
+        st.stop()
+
+
 
     st.markdown("## Configuração")
 
